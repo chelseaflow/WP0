@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3577",
+  "nama": "Kota Madiun",
+  "lat": -7.6298,
+  "lon": 111.5237,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.625,
+    "longitude": 111.5,
+    "generationtime_ms": 0.12814998626708984,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 68.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.5,
+        27.6,
+        27.0,
+        27.2,
+        27.2,
+        27.4,
+        27.4
+      ],
+      "precipitation_sum": [
+        0.7,
+        0.8,
+        29.4,
+        16.0,
+        27.6,
+        0.9,
+        1.2
+      ],
+      "relative_humidity_2m_mean": [
+        80,
+        80,
+        87,
+        87,
+        88,
+        85,
+        81
+      ],
+      "wind_speed_10m_max": [
+        10.4,
+        10.7,
+        5.2,
+        12.3,
+        4.7,
+        7.9,
+        11.9
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:59:38.244440"
+}

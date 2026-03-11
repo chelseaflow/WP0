@@ -1,0 +1,27 @@
+{
+  "collected_at": "2026-03-11T20:59:42.593890",
+  "results": {
+    "weather": {
+      "rows": 266,
+      "status": "OK"
+    }
+  },
+  "data_files": [
+    {
+      "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\COLLECTION_REPORT.json",
+      "size_kb": 0.6
+    },
+    {
+      "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\distance\\distance_matrix_jatim.csv",
+      "size_kb": 152.5
+    },
+    {
+      "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\distance\\distance_pivot_km.csv",
+      "size_kb": 9.7
+    },
+    {
+      "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\weather\\weather_jatim_combined.csv",
+      "size_kb": 15.8
+    }
+  ]
+}

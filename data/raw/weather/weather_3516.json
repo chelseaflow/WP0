@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3516",
+  "nama": "Kabupaten Mojokerto",
+  "lat": -7.4726,
+  "lon": 112.4341,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.5,
+    "longitude": 112.375,
+    "generationtime_ms": 0.09119510650634766,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 23.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.3,
+        27.5,
+        27.5,
+        27.4,
+        27.5,
+        27.4,
+        27.5
+      ],
+      "precipitation_sum": [
+        8.6,
+        11.7,
+        10.7,
+        18.2,
+        7.8,
+        0.0,
+        0.6
+      ],
+      "relative_humidity_2m_mean": [
+        81,
+        83,
+        84,
+        87,
+        87,
+        84,
+        84
+      ],
+      "wind_speed_10m_max": [
+        14.1,
+        14.6,
+        9.7,
+        8.7,
+        8.8,
+        12.2,
+        12.4
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:58:53.498710"
+}

@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3578",
+  "nama": "Kota Surabaya",
+  "lat": -7.2575,
+  "lon": 112.7521,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.25,
+    "longitude": 112.75,
+    "generationtime_ms": 0.14269351959228516,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 8.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.7,
+        27.8,
+        27.7,
+        27.8,
+        27.7,
+        27.9,
+        27.9
+      ],
+      "precipitation_sum": [
+        5.9,
+        11.0,
+        12.1,
+        9.0,
+        13.5,
+        0.9,
+        21.6
+      ],
+      "relative_humidity_2m_mean": [
+        81,
+        81,
+        83,
+        83,
+        84,
+        80,
+        82
+      ],
+      "wind_speed_10m_max": [
+        15.3,
+        14.8,
+        13.4,
+        12.6,
+        11.0,
+        7.8,
+        8.7
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:59:40.406793"
+}

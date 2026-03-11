@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3524",
+  "nama": "Kabupaten Lamongan",
+  "lat": -7.1197,
+  "lon": 112.4178,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.125,
+    "longitude": 112.375,
+    "generationtime_ms": 0.11920928955078125,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 7.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.3,
+        27.6,
+        27.4,
+        27.4,
+        27.2,
+        27.8,
+        28.0
+      ],
+      "precipitation_sum": [
+        8.2,
+        12.2,
+        10.3,
+        9.6,
+        14.6,
+        3.1,
+        1.2
+      ],
+      "relative_humidity_2m_mean": [
+        82,
+        81,
+        84,
+        85,
+        85,
+        82,
+        82
+      ],
+      "wind_speed_10m_max": [
+        16.0,
+        14.0,
+        13.7,
+        14.1,
+        10.7,
+        10.0,
+        9.4
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:59:12.731844"
+}

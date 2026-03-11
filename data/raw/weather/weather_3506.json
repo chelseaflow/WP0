@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3506",
+  "nama": "Kabupaten Kediri",
+  "lat": -7.8489,
+  "lon": 112.0108,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.875,
+    "longitude": 112.0,
+    "generationtime_ms": 0.09083747863769531,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 70.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        22.4,
+        22.3,
+        22.1,
+        22.0,
+        21.8,
+        21.7,
+        21.6
+      ],
+      "precipitation_sum": [
+        2.8,
+        5.6,
+        13.8,
+        40.8,
+        18.0,
+        5.4,
+        8.4
+      ],
+      "relative_humidity_2m_mean": [
+        74,
+        78,
+        84,
+        87,
+        89,
+        86,
+        87
+      ],
+      "wind_speed_10m_max": [
+        8.9,
+        8.0,
+        6.4,
+        5.9,
+        5.6,
+        6.8,
+        8.4
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:58:31.542792"
+}

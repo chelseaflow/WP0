@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3517",
+  "nama": "Kabupaten Jombang",
+  "lat": -7.5467,
+  "lon": 112.2354,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.5,
+    "longitude": 112.25,
+    "generationtime_ms": 0.08869171142578125,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 42.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        26.9,
+        26.9,
+        27.1,
+        27.0,
+        26.9,
+        27.0,
+        27.1
+      ],
+      "precipitation_sum": [
+        7.6,
+        12.6,
+        9.8,
+        14.3,
+        14.6,
+        0.3,
+        0.6
+      ],
+      "relative_humidity_2m_mean": [
+        83,
+        83,
+        84,
+        86,
+        87,
+        84,
+        82
+      ],
+      "wind_speed_10m_max": [
+        10.5,
+        10.4,
+        9.5,
+        10.2,
+        7.0,
+        12.1,
+        13.9
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:58:55.586653"
+}

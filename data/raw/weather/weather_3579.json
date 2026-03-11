@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3579",
+  "nama": "Kota Batu",
+  "lat": -7.8672,
+  "lon": 112.5261,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.875,
+    "longitude": 112.5,
+    "generationtime_ms": 0.13637542724609375,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 866.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        25.3,
+        25.4,
+        25.2,
+        24.9,
+        25.0,
+        25.4,
+        25.3
+      ],
+      "precipitation_sum": [
+        0.5,
+        0.8,
+        8.9,
+        13.2,
+        9.3,
+        0.0,
+        3.6
+      ],
+      "relative_humidity_2m_mean": [
+        79,
+        79,
+        85,
+        91,
+        87,
+        81,
+        83
+      ],
+      "wind_speed_10m_max": [
+        12.9,
+        13.4,
+        12.6,
+        10.1,
+        10.0,
+        11.2,
+        9.7
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:59:42.577818"
+}

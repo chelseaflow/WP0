@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3576",
+  "nama": "Kota Mojokerto",
+  "lat": -7.4704,
+  "lon": 112.438,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.5,
+    "longitude": 112.5,
+    "generationtime_ms": 0.12826919555664062,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 23.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.1,
+        27.4,
+        27.3,
+        27.2,
+        27.2,
+        27.2,
+        27.3
+      ],
+      "precipitation_sum": [
+        2.7,
+        5.6,
+        7.0,
+        12.5,
+        6.6,
+        0.0,
+        0.9
+      ],
+      "relative_humidity_2m_mean": [
+        79,
+        81,
+        83,
+        85,
+        86,
+        85,
+        84
+      ],
+      "wind_speed_10m_max": [
+        16.6,
+        16.3,
+        11.6,
+        9.6,
+        9.8,
+        9.9,
+        6.9
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:59:36.110337"
+}

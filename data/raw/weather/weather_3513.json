@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3513",
+  "nama": "Kabupaten Probolinggo",
+  "lat": -7.8662,
+  "lon": 113.2158,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.875,
+    "longitude": 113.25,
+    "generationtime_ms": 0.12278556823730469,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 69.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        25.9,
+        26.2,
+        25.9,
+        25.5,
+        25.7,
+        26.4,
+        26.3
+      ],
+      "precipitation_sum": [
+        7.6,
+        13.9,
+        14.1,
+        17.0,
+        30.5,
+        5.1,
+        5.4
+      ],
+      "relative_humidity_2m_mean": [
+        81,
+        82,
+        87,
+        90,
+        88,
+        80,
+        81
+      ],
+      "wind_speed_10m_max": [
+        11.6,
+        11.4,
+        11.5,
+        10.8,
+        9.6,
+        7.2,
+        9.5
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:58:46.978097"
+}

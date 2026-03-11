@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3575",
+  "nama": "Kota Pasuruan",
+  "lat": -7.6455,
+  "lon": 112.9077,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.625,
+    "longitude": 112.875,
+    "generationtime_ms": 0.13577938079833984,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 8.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        26.2,
+        26.4,
+        26.6,
+        26.9,
+        26.6,
+        26.5,
+        26.8
+      ],
+      "precipitation_sum": [
+        18.7,
+        15.2,
+        14.1,
+        21.9,
+        26.1,
+        1.5,
+        3.9
+      ],
+      "relative_humidity_2m_mean": [
+        85,
+        85,
+        86,
+        88,
+        89,
+        86,
+        85
+      ],
+      "wind_speed_10m_max": [
+        11.4,
+        10.8,
+        11.2,
+        10.5,
+        9.2,
+        8.8,
+        9.9
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:59:33.971654"
+}

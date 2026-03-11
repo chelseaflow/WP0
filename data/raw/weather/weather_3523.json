@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3523",
+  "nama": "Kabupaten Tuban",
+  "lat": -6.9667,
+  "lon": 112.05,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.0,
+    "longitude": 112.0,
+    "generationtime_ms": 0.09846687316894531,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 53.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.4,
+        27.6,
+        27.4,
+        27.3,
+        27.3,
+        27.8,
+        27.5
+      ],
+      "precipitation_sum": [
+        10.4,
+        7.7,
+        8.9,
+        9.3,
+        14.1,
+        5.4,
+        10.8
+      ],
+      "relative_humidity_2m_mean": [
+        81,
+        80,
+        83,
+        85,
+        85,
+        82,
+        82
+      ],
+      "wind_speed_10m_max": [
+        13.7,
+        13.4,
+        12.9,
+        13.3,
+        10.2,
+        9.3,
+        10.1
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:59:09.561569"
+}

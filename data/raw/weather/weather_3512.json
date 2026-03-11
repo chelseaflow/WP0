@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3512",
+  "nama": "Kabupaten Situbondo",
+  "lat": -7.7067,
+  "lon": 114.0049,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.75,
+    "longitude": 114.0,
+    "generationtime_ms": 0.6072521209716797,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 34.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        26.1,
+        26.0,
+        25.7,
+        25.8,
+        25.4,
+        25.7,
+        25.7
+      ],
+      "precipitation_sum": [
+        2.2,
+        13.1,
+        14.8,
+        11.7,
+        11.4,
+        3.9,
+        2.4
+      ],
+      "relative_humidity_2m_mean": [
+        80,
+        84,
+        87,
+        89,
+        90,
+        85,
+        84
+      ],
+      "wind_speed_10m_max": [
+        9.1,
+        6.6,
+        9.3,
+        8.0,
+        5.4,
+        4.9,
+        6.9
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:58:44.688879"
+}

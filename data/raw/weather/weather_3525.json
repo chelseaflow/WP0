@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3525",
+  "nama": "Kabupaten Gresik",
+  "lat": -7.1641,
+  "lon": 112.6508,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.125,
+    "longitude": 112.625,
+    "generationtime_ms": 0.09715557098388672,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 19.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.7,
+        27.9,
+        27.6,
+        27.6,
+        27.6,
+        28.0,
+        28.0
+      ],
+      "precipitation_sum": [
+        6.5,
+        8.9,
+        9.4,
+        5.4,
+        12.4,
+        0.8,
+        5.9
+      ],
+      "relative_humidity_2m_mean": [
+        80,
+        79,
+        82,
+        83,
+        82,
+        79,
+        81
+      ],
+      "wind_speed_10m_max": [
+        15.0,
+        13.6,
+        13.0,
+        12.8,
+        11.2,
+        8.4,
+        7.0
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:59:14.877269"
+}

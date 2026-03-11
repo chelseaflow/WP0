@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3510",
+  "nama": "Kabupaten Banyuwangi",
+  "lat": -8.2193,
+  "lon": 114.352,
+  "historical": null,
+  "forecast": {
+    "latitude": -8.25,
+    "longitude": 114.375,
+    "generationtime_ms": 0.12135505676269531,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 59.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        25.1,
+        24.7,
+        23.9,
+        23.5,
+        23.6,
+        24.0,
+        23.7
+      ],
+      "precipitation_sum": [
+        0.0,
+        2.3,
+        28.5,
+        18.3,
+        28.8,
+        14.4,
+        9.6
+      ],
+      "relative_humidity_2m_mean": [
+        73,
+        78,
+        88,
+        91,
+        91,
+        87,
+        89
+      ],
+      "wind_speed_10m_max": [
+        16.6,
+        12.4,
+        11.8,
+        8.3,
+        8.2,
+        14.1,
+        11.2
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:58:40.367932"
+}

@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3526",
+  "nama": "Kabupaten Bangkalan",
+  "lat": -7.0456,
+  "lon": 112.9352,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.0,
+    "longitude": 112.875,
+    "generationtime_ms": 0.10037422180175781,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 164.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.2,
+        27.3,
+        27.0,
+        27.1,
+        27.1,
+        27.3,
+        27.4
+      ],
+      "precipitation_sum": [
+        2.5,
+        9.2,
+        7.6,
+        3.4,
+        6.7,
+        10.6,
+        9.2
+      ],
+      "relative_humidity_2m_mean": [
+        79,
+        79,
+        82,
+        80,
+        81,
+        78,
+        79
+      ],
+      "wind_speed_10m_max": [
+        18.9,
+        16.9,
+        16.0,
+        15.8,
+        13.6,
+        6.2,
+        5.9
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:59:16.949829"
+}

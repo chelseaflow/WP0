@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3515",
+  "nama": "Kabupaten Sidoarjo",
+  "lat": -7.4518,
+  "lon": 112.7181,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.5,
+    "longitude": 112.75,
+    "generationtime_ms": 0.10657310485839844,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 6.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.5,
+        27.5,
+        27.5,
+        27.4,
+        27.3,
+        27.1,
+        27.1
+      ],
+      "precipitation_sum": [
+        9.6,
+        20.7,
+        13.4,
+        15.9,
+        13.5,
+        9.0,
+        12.9
+      ],
+      "relative_humidity_2m_mean": [
+        82,
+        83,
+        84,
+        86,
+        86,
+        85,
+        84
+      ],
+      "wind_speed_10m_max": [
+        12.4,
+        11.2,
+        12.1,
+        10.1,
+        7.2,
+        7.1,
+        4.1
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:58:51.310904"
+}

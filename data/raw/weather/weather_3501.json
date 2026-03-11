@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3501",
+  "nama": "Kabupaten Pacitan",
+  "lat": -8.1953,
+  "lon": 111.1012,
+  "historical": null,
+  "forecast": {
+    "latitude": -8.25,
+    "longitude": 111.125,
+    "generationtime_ms": 1.3810396194458008,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 8.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.5,
+        27.4,
+        27.4,
+        27.5,
+        27.6,
+        27.1,
+        27.0
+      ],
+      "precipitation_sum": [
+        0.6,
+        0.4,
+        0.4,
+        6.3,
+        1.2,
+        0.6,
+        0.0
+      ],
+      "relative_humidity_2m_mean": [
+        82,
+        81,
+        82,
+        83,
+        83,
+        88,
+        87
+      ],
+      "wind_speed_10m_max": [
+        16.7,
+        18.3,
+        15.3,
+        13.5,
+        15.8,
+        7.9,
+        10.7
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:58:20.005981"
+}

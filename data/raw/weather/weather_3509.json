@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3509",
+  "nama": "Kabupaten Jember",
+  "lat": -8.1725,
+  "lon": 113.6883,
+  "historical": null,
+  "forecast": {
+    "latitude": -8.125,
+    "longitude": 113.75,
+    "generationtime_ms": 0.08690357208251953,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 88.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        23.1,
+        22.9,
+        22.9,
+        23.0,
+        22.6,
+        22.8,
+        22.7
+      ],
+      "precipitation_sum": [
+        0.0,
+        4.5,
+        9.4,
+        27.0,
+        13.8,
+        4.2,
+        6.0
+      ],
+      "relative_humidity_2m_mean": [
+        85,
+        86,
+        89,
+        93,
+        94,
+        89,
+        92
+      ],
+      "wind_speed_10m_max": [
+        16.8,
+        14.6,
+        12.9,
+        9.0,
+        9.8,
+        12.9,
+        10.0
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:58:38.178392"
+}

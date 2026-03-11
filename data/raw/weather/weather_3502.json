@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3502",
+  "nama": "Kabupaten Ponorogo",
+  "lat": -7.8654,
+  "lon": 111.4595,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.875,
+    "longitude": 111.5,
+    "generationtime_ms": 0.09608268737792969,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 98.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        26.5,
+        26.5,
+        26.6,
+        26.3,
+        26.6,
+        26.5,
+        26.5
+      ],
+      "precipitation_sum": [
+        0.1,
+        0.0,
+        1.0,
+        48.6,
+        4.8,
+        0.0,
+        0.6
+      ],
+      "relative_humidity_2m_mean": [
+        78,
+        78,
+        80,
+        87,
+        84,
+        81,
+        80
+      ],
+      "wind_speed_10m_max": [
+        17.3,
+        18.9,
+        10.4,
+        8.9,
+        6.5,
+        9.4,
+        8.8
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:58:23.064392"
+}

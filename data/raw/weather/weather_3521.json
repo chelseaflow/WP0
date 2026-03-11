@@ -1,0 +1,71 @@
+{
+  "kode_bps": "3521",
+  "nama": "Kabupaten Ngawi",
+  "lat": -7.4047,
+  "lon": 111.4475,
+  "historical": null,
+  "forecast": {
+    "latitude": -7.375,
+    "longitude": 111.5,
+    "generationtime_ms": 0.09238719940185547,
+    "utc_offset_seconds": 25200,
+    "timezone": "Asia/Jakarta",
+    "timezone_abbreviation": "GMT+7",
+    "elevation": 49.0,
+    "daily_units": {
+      "time": "iso8601",
+      "temperature_2m_mean": "°C",
+      "precipitation_sum": "mm",
+      "relative_humidity_2m_mean": "%",
+      "wind_speed_10m_max": "km/h"
+    },
+    "daily": {
+      "time": [
+        "2026-03-12",
+        "2026-03-13",
+        "2026-03-14",
+        "2026-03-15",
+        "2026-03-16",
+        "2026-03-17",
+        "2026-03-18"
+      ],
+      "temperature_2m_mean": [
+        27.0,
+        27.4,
+        27.3,
+        27.0,
+        27.1,
+        27.0,
+        27.3
+      ],
+      "precipitation_sum": [
+        3.0,
+        2.1,
+        5.6,
+        5.7,
+        14.1,
+        12.6,
+        10.2
+      ],
+      "relative_humidity_2m_mean": [
+        80,
+        80,
+        82,
+        84,
+        85,
+        87,
+        84
+      ],
+      "wind_speed_10m_max": [
+        10.0,
+        9.8,
+        12.4,
+        15.0,
+        11.1,
+        7.0,
+        8.6
+      ]
+    }
+  },
+  "fetched_at": "2026-03-11T20:59:05.197085"
+}
