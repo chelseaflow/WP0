@@ -1,65 +1,72 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 AgriFlow WP0 — Collector: PIHPS Bank Indonesia (Harga Pangan)
 ================================================================
 PIHPS = Pusat Informasi Harga Pangan Strategis Nasional
-Website: https://www.bi.go.id/hargapangan/
+Endpoint: https://www.bi.go.id/hargapangan/WebSite/Home/GetChartData
 
-PROVEN STRATEGY (ordered by reliability):
-  1. GetChartData API — CONFIRMED WORKING endpoint
-     - URL: /hargapangan/WebSite/Home/GetChartData
-     - Loops per kab/kota × per month × per commodity
-     - Key insight: price is in 'nominal' field (NOT 'harga' which is always 0)
-     - Requires: valid Cookie + Xsrf-Token (from browser session)
-  2. Session-based AJAX — Try with fresh session tokens
-  3. HTML Scraping — Parse rendered table pages
-  4. Manual CSV/Excel — User downloads from BI website
-  5. Sample Data — Realistic synthetic data for development/demo
+CONFIRMED WORKING — Scrapes real daily price data from Bank Indonesia.
 
-COMMODITY TEMPLATE IDs (tempId):
-  Each commodity on PIHPS has a unique GUID (tempId).
-  These can be discovered by inspecting Network tab when selecting
-  a commodity on the PIHPS chart page.
+Key discoveries:
+  - Price is in 'nominal' field (NOT 'harga' which is always 0)
+  - Each commodity has a unique tempId (GUID)
+  - Loop: per kab/kota × per month × per commodity
+  - Requires valid Cookie + Xsrf-Token from browser session
+
+Speed optimizations vs original scraper:
+  - ThreadPoolExecutor: 5 concurrent kab/kota (was sequential)
+  - requests.Session: connection pooling (reuse TCP)
+  - Delay: 0.5s per request (was 2.0s)
+  - Resume: skip already-fetched location-months
+  - Original: 38 kota × 60 bulan × 2s = ~76 menit
+  - Optimized: same workload in ~8-12 menit
+
+Compatible with:
+  - run_all.py: collect_pihps_data(approach="auto") / collect_pihps_data(use_sample=True)
+  - config.settings: uses JATIM_KABUPATEN, DATA_RAW_DIR, DATA_PROCESSED_DIR
+  - utils.helpers: uses setup_logger, ensure_dir, save_json
 
 Usage:
     python collectors/pihps_collector.py --sample
-    python collectors/pihps_collector.py --approach api
-    python collectors/pihps_collector.py --approach api --days 30
-    python collectors/pihps_collector.py --approach api --commodity beras_medium_2
+    python collectors/pihps_collector.py --approach api --days 90
     python collectors/pihps_collector.py --approach api --all-commodities
+    python collectors/pihps_collector.py --approach api --start 2024-01-01 --end 2025-12-31
     python collectors/pihps_collector.py --approach manual --file data.csv
-    python collectors/pihps_collector.py --approach auto
     python collectors/pihps_collector.py --refresh-tokens
+    python collectors/pihps_collector.py --workers 3 --delay 1.0   # slower but safer
 """
 
 import os
 import sys
 import time
 import json
-import re
 import csv
+import re
+from datetime import datetime, timedelta, date
+from typing import Optional, List, Dict, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
-# --- Path fix: ensure project root is importable ---
+# ============================================================
+# Path fix — ensure project root is importable
+# ============================================================
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import pandas as pd
-from datetime import datetime, timedelta, date
-from typing import Optional, List, Dict, Tuple
+import numpy as np
 
 try:
     from dateutil.relativedelta import relativedelta
     HAS_DATEUTIL = True
 except ImportError:
     HAS_DATEUTIL = False
-
-try:
-    from bs4 import BeautifulSoup
-    HAS_BS4 = True
-except ImportError:
-    HAS_BS4 = False
 
 from config.settings import (
     JATIM_KABUPATEN, PIHPS_COMMODITIES, PIHPS_BASE_URL,
@@ -73,676 +80,472 @@ from utils.helpers import (
 logger = setup_logger("pihps_collector")
 
 # ============================================================
-# CONSTANTS & CONFIGURATION
+# CONFIGURATION
 # ============================================================
 PIHPS_BASE = "https://www.bi.go.id/hargapangan"
-
-# THE WORKING ENDPOINT (confirmed via browser Network tab inspection)
 GETCHART_ENDPOINT = f"{PIHPS_BASE}/WebSite/Home/GetChartData"
 
-# Province code for Jawa Timur
-PIHPS_PROVINSI_JATIM = "15"
+# --- Speed tuning ---
+DEFAULT_WORKERS = 5       # Concurrent kab/kota threads
+DEFAULT_DELAY = 0.5       # Seconds between requests per thread
+MAX_RETRIES = 2           # Retries on timeout/5xx
 
-# Delay between API requests (be polite to BI servers)
-REQUEST_DELAY = 2.0
+# --- Token persistence ---
+TOKEN_FILE = os.path.join(SCRIPT_DIR, ".pihps_tokens.json")
+
+# Thread-safe auth error flag
+_auth_error = threading.Event()
 
 # ============================================================
-# COMMODITY TEMPLATE IDs
+# COMMODITY TEMPLATE IDs (tempId = GUID per komoditas)
 # ============================================================
-# Each commodity has a unique GUID on the PIHPS system.
-# HOW TO FIND NEW tempIds:
+# HOW TO DISCOVER NEW tempIds:
 #   1. Open https://www.bi.go.id/hargapangan/ in Chrome
-#   2. Open DevTools (F12) → Network tab → filter XHR
-#   3. Select a commodity from the dropdown on the chart page
-#   4. Look at the request to GetChartData → copy "tempId" parameter
-#
-# These IDs appear to be stable but may change if BI rebuilds the site.
-# Last verified: 2025
+#   2. F12 → Network → XHR filter
+#   3. Select a commodity from the dropdown
+#   4. Find GetChartData request → copy "tempId" param value
+#   5. Paste below
 
 COMMODITY_TEMPLATES = {
-    "beras_kualitas_bawah_1": {
-        "tempId": None,  # TODO: discover via browser
-        "nama": "Beras Kualitas Bawah I",
-        "comName": "Beras Kualitas Bawah I",
-        "satuan": "Rp/kg",
-    },
-    "beras_kualitas_bawah_2": {
-        "tempId": None,
-        "nama": "Beras Kualitas Bawah II",
-        "comName": "Beras Kualitas Bawah II",
-        "satuan": "Rp/kg",
-    },
-    "beras_kualitas_medium_1": {
-        "tempId": None,
-        "nama": "Beras Kualitas Medium I",
-        "comName": "Beras Kualitas Medium I",
-        "satuan": "Rp/kg",
-    },
     "beras_kualitas_medium_2": {
-        # This one is confirmed from pihps_scraper_final.py
-        "tempId": "ae94ec7c-32b3-466b-a068-554d5d0c7116",
-        "nama": "Beras Kualitas Medium II",
+        "tempId": "ae94ec7c-32b3-466b-a068-554d5d0c7116",  # CONFIRMED
         "comName": "Beras Kualitas Medium II",
         "satuan": "Rp/kg",
     },
-    "beras_kualitas_super_1": {
-        "tempId": None,
-        "nama": "Beras Kualitas Super I",
-        "comName": "Beras Kualitas Super I",
-        "satuan": "Rp/kg",
-    },
-    "beras_kualitas_super_2": {
-        "tempId": None,
-        "nama": "Beras Kualitas Super II",
-        "comName": "Beras Kualitas Super II",
-        "satuan": "Rp/kg",
-    },
-    "cabai_merah_besar": {
-        "tempId": None,
-        "nama": "Cabai Merah Besar",
-        "comName": "Cabai Merah Besar",
-        "satuan": "Rp/kg",
-    },
-    "cabai_merah_keriting": {
-        "tempId": None,
-        "nama": "Cabai Merah Keriting",
-        "comName": "Cabai Merah Keriting",
-        "satuan": "Rp/kg",
-    },
-    "cabai_rawit_hijau": {
-        "tempId": None,
-        "nama": "Cabai Rawit Hijau",
-        "comName": "Cabai Rawit Hijau",
-        "satuan": "Rp/kg",
-    },
-    "cabai_rawit_merah": {
-        "tempId": None,
-        "nama": "Cabai Rawit Merah",
-        "comName": "Cabai Rawit Merah",
-        "satuan": "Rp/kg",
-    },
-    "bawang_merah": {
-        "tempId": None,
-        "nama": "Bawang Merah Ukuran Sedang",
-        "comName": "Bawang Merah Ukuran Sedang",
-        "satuan": "Rp/kg",
-    },
-    "bawang_putih": {
-        "tempId": None,
-        "nama": "Bawang Putih Ukuran Sedang",
-        "comName": "Bawang Putih Ukuran Sedang",
-        "satuan": "Rp/kg",
-    },
-    "daging_sapi_kualitas_1": {
-        "tempId": None,
-        "nama": "Daging Sapi Kualitas 1",
-        "comName": "Daging Sapi Kualitas 1",
-        "satuan": "Rp/kg",
-    },
-    "daging_sapi_kualitas_2": {
-        "tempId": None,
-        "nama": "Daging Sapi Kualitas 2",
-        "comName": "Daging Sapi Kualitas 2",
-        "satuan": "Rp/kg",
-    },
-    "daging_ayam_ras": {
-        "tempId": None,
-        "nama": "Daging Ayam Ras Segar",
-        "comName": "Daging Ayam Ras Segar",
-        "satuan": "Rp/kg",
-    },
-    "telur_ayam_ras": {
-        "tempId": None,
-        "nama": "Telur Ayam Ras Segar",
-        "comName": "Telur Ayam Ras Segar",
-        "satuan": "Rp/kg",
-    },
-    "gula_pasir_lokal": {
-        "tempId": None,
-        "nama": "Gula Pasir Lokal",
-        "comName": "Gula Pasir Lokal",
-        "satuan": "Rp/kg",
-    },
-    "gula_pasir_premium": {
-        "tempId": None,
-        "nama": "Gula Pasir Kualitas Premium",
-        "comName": "Gula Pasir Kualitas Premium",
-        "satuan": "Rp/kg",
-    },
-    "minyak_goreng_curah": {
-        "tempId": None,
-        "nama": "Minyak Goreng Curah",
-        "comName": "Minyak Goreng Curah",
-        "satuan": "Rp/liter",
-    },
-    "minyak_goreng_kemasan_1": {
-        "tempId": None,
-        "nama": "Minyak Goreng Kemasan Bermerk 1",
-        "comName": "Minyak Goreng Kemasan Bermerk 1",
-        "satuan": "Rp/liter",
-    },
-    "minyak_goreng_kemasan_2": {
-        "tempId": None,
-        "nama": "Minyak Goreng Kemasan Bermerk 2",
-        "comName": "Minyak Goreng Kemasan Bermerk 2",
-        "satuan": "Rp/liter",
-    },
+    # ---- ADD MORE AS YOU DISCOVER THEM ----
+    # "cabai_merah_besar": {
+    #     "tempId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    #     "comName": "Cabai Merah Besar",
+    #     "satuan": "Rp/kg",
+    # },
+    # "bawang_merah": {
+    #     "tempId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    #     "comName": "Bawang Merah Ukuran Sedang",
+    #     "satuan": "Rp/kg",
+    # },
 }
 
 # ============================================================
-# KAB/KOTA JAWA TIMUR — locationId for GetChartData
+# ALL KAB/KOTA JAWA TIMUR (locationId for GetChartData)
 # ============================================================
-# These are the BPS kode used as locationId in the API.
-# Verified from pihps_scraper_final.py.
-# IMPORTANT: Not all kab/kota may have data on PIHPS — PIHPS covers
-# 82 cities nationwide, ~10 in Jawa Timur. But the API accepts
-# all kab/kota codes and returns empty if no data.
-
 KAB_KOTA_JATIM = {
-    "3501": "Kab. Pacitan",
-    "3502": "Kab. Ponorogo",
-    "3503": "Kab. Trenggalek",
-    "3504": "Kab. Tulungagung",
-    "3505": "Kab. Blitar",
-    "3506": "Kab. Kediri",
-    "3507": "Kab. Malang",
-    "3508": "Kab. Lumajang",
-    "3509": "Kab. Jember",
-    "3510": "Kab. Banyuwangi",
-    "3511": "Kab. Bondowoso",
-    "3512": "Kab. Situbondo",
-    "3513": "Kab. Probolinggo",
-    "3514": "Kab. Pasuruan",
-    "3515": "Kab. Sidoarjo",
-    "3516": "Kab. Mojokerto",
-    "3517": "Kab. Jombang",
-    "3518": "Kab. Nganjuk",
-    "3519": "Kab. Madiun",
-    "3520": "Kab. Magetan",
-    "3521": "Kab. Ngawi",
-    "3522": "Kab. Bojonegoro",
-    "3523": "Kab. Tuban",
-    "3524": "Kab. Lamongan",
-    "3525": "Kab. Gresik",
-    "3526": "Kab. Bangkalan",
-    "3527": "Kab. Sampang",
-    "3528": "Kab. Pamekasan",
+    "3501": "Kab. Pacitan",     "3502": "Kab. Ponorogo",
+    "3503": "Kab. Trenggalek",  "3504": "Kab. Tulungagung",
+    "3505": "Kab. Blitar",      "3506": "Kab. Kediri",
+    "3507": "Kab. Malang",      "3508": "Kab. Lumajang",
+    "3509": "Kab. Jember",      "3510": "Kab. Banyuwangi",
+    "3511": "Kab. Bondowoso",   "3512": "Kab. Situbondo",
+    "3513": "Kab. Probolinggo", "3514": "Kab. Pasuruan",
+    "3515": "Kab. Sidoarjo",    "3516": "Kab. Mojokerto",
+    "3517": "Kab. Jombang",     "3518": "Kab. Nganjuk",
+    "3519": "Kab. Madiun",      "3520": "Kab. Magetan",
+    "3521": "Kab. Ngawi",       "3522": "Kab. Bojonegoro",
+    "3523": "Kab. Tuban",       "3524": "Kab. Lamongan",
+    "3525": "Kab. Gresik",      "3526": "Kab. Bangkalan",
+    "3527": "Kab. Sampang",     "3528": "Kab. Pamekasan",
     "3529": "Kab. Sumenep",
-    "3571": "Kota Kediri",
-    "3572": "Kota Blitar",
-    "3573": "Kota Malang",
-    "3574": "Kota Probolinggo",
-    "3575": "Kota Pasuruan",
-    "3576": "Kota Mojokerto",
-    "3577": "Kota Madiun",
-    "3578": "Kota Surabaya",
+    "3571": "Kota Kediri",      "3572": "Kota Blitar",
+    "3573": "Kota Malang",      "3574": "Kota Probolinggo",
+    "3575": "Kota Pasuruan",    "3576": "Kota Mojokerto",
+    "3577": "Kota Madiun",      "3578": "Kota Surabaya",
     "3579": "Kota Batu",
 }
 
-# Standard browser headers
-BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
-    "X-Requested-With": "XMLHttpRequest",
-    "Referer": f"{PIHPS_BASE}/",
-    "Connection": "keep-alive",
-}
 
-# Token file path for persisting Cookie + Xsrf-Token between runs
-TOKEN_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    ".pihps_tokens.json"
-)
+# ============================================================
+# SESSION FACTORY (connection pooling + retries)
+# ============================================================
+def create_fast_session(cookie: str = "", xsrf_token: str = "") -> requests.Session:
+    """
+    Session with connection pooling + auto-retry.
+    Reusing TCP connections saves ~100ms per request.
+    """
+    session = requests.Session()
+
+    adapter = HTTPAdapter(
+        pool_connections=10,
+        pool_maxsize=10,
+        max_retries=Retry(
+            total=MAX_RETRIES,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["GET"],
+        ),
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": f"{PIHPS_BASE}/",
+        "Connection": "keep-alive",
+    })
+
+    if cookie:
+        session.headers["Cookie"] = cookie
+    if xsrf_token:
+        session.headers["Xsrf-Token"] = xsrf_token
+
+    return session
 
 
 # ============================================================
 # TOKEN MANAGEMENT
 # ============================================================
-def load_saved_tokens() -> Optional[Dict[str, str]]:
-    """Load saved Cookie + Xsrf-Token from disk."""
+def load_tokens() -> Dict[str, str]:
+    """Load saved tokens from disk."""
     if os.path.exists(TOKEN_FILE):
         try:
             with open(TOKEN_FILE) as f:
-                tokens = json.load(f)
-            age_hours = (
+                data = json.load(f)
+            age_h = (
                 datetime.now() -
-                datetime.fromisoformat(tokens.get("saved_at", "2000-01-01"))
+                datetime.fromisoformat(data.get("saved_at", "2000-01-01"))
             ).total_seconds() / 3600
-            if age_hours > 24:
-                logger.warning(
-                    f"Saved tokens are {age_hours:.0f}h old — may be expired"
-                )
-            return tokens
-        except Exception as e:
-            logger.debug(f"Could not load tokens: {e}")
-    return None
+            if age_h > 24:
+                logger.warning(f"Tokens are {age_h:.0f}h old — may be expired")
+            return data
+        except Exception:
+            pass
+    return {}
 
 
-def save_tokens(cookie: str, xsrf_token: str):
-    """Save tokens to disk for reuse."""
+def save_tokens_to_file(cookie: str, xsrf_token: str):
+    """Persist tokens for reuse."""
+    with open(TOKEN_FILE, "w") as f:
+        json.dump({
+            "Cookie": cookie,
+            "Xsrf-Token": xsrf_token,
+            "saved_at": datetime.now().isoformat(),
+        }, f, indent=2)
+    logger.info(f"Tokens saved → {TOKEN_FILE}")
+
+
+def obtain_fresh_tokens() -> Dict[str, str]:
+    """Visit PIHPS site to grab fresh cookies + XSRF token."""
+    logger.info("Obtaining fresh tokens from PIHPS website...")
+    s = requests.Session()
+    s.headers["User-Agent"] = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    )
     try:
-        with open(TOKEN_FILE, "w") as f:
-            json.dump({
-                "Cookie": cookie,
-                "Xsrf-Token": xsrf_token,
-                "saved_at": datetime.now().isoformat(),
-            }, f, indent=2)
-        logger.info(f"Tokens saved to {TOKEN_FILE}")
-    except Exception as e:
-        logger.warning(f"Could not save tokens: {e}")
+        s.get(PIHPS_BASE, timeout=30)
+        s.get(f"{PIHPS_BASE}/TabelHarga/PasarTradisionalDaerah", timeout=30)
 
-
-def obtain_fresh_tokens() -> Optional[Dict[str, str]]:
-    """
-    Try to obtain fresh Cookie + Xsrf-Token by visiting the PIHPS site.
-    The site sets cookies on first visit, and the Xsrf-Token may be
-    in a cookie or in a meta tag / hidden form field.
-    """
-    logger.info("Attempting to obtain fresh tokens from PIHPS...")
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": BROWSER_HEADERS["User-Agent"],
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "id-ID,id;q=0.9",
-    })
-
-    try:
-        # Step 1: Visit homepage to get initial cookies
-        resp = session.get(PIHPS_BASE, timeout=30)
-        resp.raise_for_status()
-
-        # Step 2: Visit the chart/table page to trigger full cookie set
-        resp2 = session.get(
-            f"{PIHPS_BASE}/TabelHarga/PasarTradisionalDaerah",
-            timeout=30
-        )
-
-        # Collect all cookies
-        all_cookies = session.cookies.get_dict()
-        cookie_str = "; ".join(f"{k}={v}" for k, v in all_cookies.items())
-
-        # Look for Xsrf-Token in cookies
-        xsrf = all_cookies.get("XSRF-TOKEN", "")
-        if not xsrf:
-            xsrf = all_cookies.get("Xsrf-Token", "")
-        if not xsrf:
-            xsrf = all_cookies.get(".AspNetCore.Antiforgery", "")
-
-        # Also check for token in HTML meta tags
-        if not xsrf and HAS_BS4:
-            soup = BeautifulSoup(resp.text, "html.parser")
-            # Meta tag
-            meta = soup.find("meta", {"name": "csrf-token"})
-            if meta:
-                xsrf = meta.get("content", "")
-            # Hidden input
-            if not xsrf:
-                inp = soup.find("input", {"name": "__RequestVerificationToken"})
-                if inp:
-                    xsrf = inp.get("value", "")
+        cookies = s.cookies.get_dict()
+        cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+        xsrf = cookies.get("XSRF-TOKEN", cookies.get("Xsrf-Token", ""))
 
         if cookie_str:
-            logger.info(f"Got cookies: {len(all_cookies)} entries")
-            if xsrf:
-                logger.info("Got Xsrf-Token")
-                save_tokens(cookie_str, xsrf)
-            else:
-                logger.warning(
-                    "No Xsrf-Token found in cookies or HTML. "
-                    "API calls may fail with 401/403."
-                )
-                save_tokens(cookie_str, "")
+            save_tokens_to_file(cookie_str, xsrf)
+            logger.info(f"Got {len(cookies)} cookies" +
+                        (" + XSRF" if xsrf else " (no XSRF found)"))
             return {"Cookie": cookie_str, "Xsrf-Token": xsrf}
-        else:
-            logger.warning("No cookies received from PIHPS site")
-            return None
-
     except Exception as e:
-        logger.error(f"Token acquisition failed: {e}")
-        return None
+        logger.error(f"Token fetch failed: {e}")
+    return {}
 
 
-def get_api_headers(
-    cookie: Optional[str] = None,
-    xsrf_token: Optional[str] = None,
-) -> Dict[str, str]:
-    """Build headers for GetChartData requests."""
-    headers = dict(BROWSER_HEADERS)
-
-    # Try provided tokens first, then saved, then fresh
-    if cookie and xsrf_token:
-        headers["Cookie"] = cookie
-        headers["Xsrf-Token"] = xsrf_token
-    else:
-        saved = load_saved_tokens()
-        if saved:
-            headers["Cookie"] = saved.get("Cookie", "")
-            headers["Xsrf-Token"] = saved.get("Xsrf-Token", "")
-        else:
-            fresh = obtain_fresh_tokens()
-            if fresh:
-                headers["Cookie"] = fresh.get("Cookie", "")
-                headers["Xsrf-Token"] = fresh.get("Xsrf-Token", "")
-
-    return headers
+def resolve_tokens(cookie: Optional[str] = None,
+                   xsrf: Optional[str] = None) -> Tuple[str, str]:
+    """Resolve tokens: CLI args → saved file → fresh fetch."""
+    if cookie and xsrf:
+        return cookie, xsrf
+    saved = load_tokens()
+    if saved.get("Cookie"):
+        return saved["Cookie"], saved.get("Xsrf-Token", "")
+    fresh = obtain_fresh_tokens()
+    return fresh.get("Cookie", ""), fresh.get("Xsrf-Token", "")
 
 
 # ============================================================
-# HELPER: Monthly Period Generator
+# MONTHLY PERIOD GENERATOR
 # ============================================================
-def generate_monthly_periods(
-    start_date: date,
-    end_date: date,
-) -> List[Tuple[date, date]]:
-    """
-    Split a date range into monthly chunks.
-    GetChartData works best with 1-month windows.
-    """
+def generate_monthly_periods(start: date, end: date) -> List[Tuple[date, date]]:
+    """Split date range into monthly chunks."""
+    periods = []
     if HAS_DATEUTIL:
-        periods = []
-        cur = start_date.replace(day=1)
-        while cur <= end_date:
+        cur = start.replace(day=1)
+        while cur <= end:
             month_end = (cur + relativedelta(months=1)) - relativedelta(days=1)
-            month_end = min(month_end, end_date)
-            period_start = max(cur, start_date)
+            month_end = min(month_end, end)
+            period_start = max(cur, start)
             periods.append((period_start, month_end))
             cur += relativedelta(months=1)
-        return periods
     else:
-        # Fallback without dateutil: use ~30 day chunks
-        periods = []
-        cur = start_date
-        while cur <= end_date:
-            chunk_end = min(cur + timedelta(days=29), end_date)
+        cur = start
+        while cur <= end:
+            chunk_end = min(cur + timedelta(days=29), end)
             periods.append((cur, chunk_end))
             cur = chunk_end + timedelta(days=1)
-        return periods
+    return periods
 
 
 # ============================================================
-# APPROACH 1: GetChartData API (PRIMARY — CONFIRMED WORKING)
+# CORE: Fetch one kab/kota × one month
 # ============================================================
-def fetch_getchart_one_month(
-    headers: Dict[str, str],
+def fetch_one_month(
+    session: requests.Session,
     temp_id: str,
     com_name: str,
-    location_id: str,
-    location_name: str,
-    start_date: date,
-    end_date: date,
+    loc_id: str,
+    loc_name: str,
+    start: date,
+    end: date,
 ) -> Optional[List[Dict]]:
     """
-    Fetch daily price data for one kab/kota, one month, one commodity.
-
-    Returns:
-        List of dicts — success
-        Empty list     — no data for this period
-        None           — auth error (stop everything)
+    Single GET to GetChartData.
+    Returns list[dict] on success, empty list if no data, None on auth error.
     """
+    if _auth_error.is_set():
+        return None
+
     params = {
-        "tempId": temp_id,
-        "comName": com_name,
-        "locationId": location_id,
-        "tipeHarga": "1",  # 1 = pasar tradisional
-        "startDate": start_date.strftime("%Y-%m-%d"),
-        "endDate": end_date.strftime("%Y-%m-%d"),
-        "_": int(time.time() * 1000),  # Cache buster
+        "tempId":     temp_id,
+        "comName":    com_name,
+        "locationId": loc_id,
+        "tipeHarga":  "1",
+        "startDate":  start.strftime("%Y-%m-%d"),
+        "endDate":    end.strftime("%Y-%m-%d"),
+        "_":          int(time.time() * 1000),
     }
 
     try:
-        resp = requests.get(
-            GETCHART_ENDPOINT,
-            headers=headers,
-            params=params,
-            timeout=20,
-        )
+        r = session.get(GETCHART_ENDPOINT, params=params, timeout=20)
 
-        # Auth errors — signal to stop
-        if resp.status_code in [401, 403]:
-            logger.error(
-                f"AUTH ERROR ({resp.status_code}) — "
-                "Cookie/Xsrf-Token expired or invalid!"
-            )
+        if r.status_code in [401, 403]:
+            logger.error(f"AUTH ERROR {r.status_code} — tokens expired!")
+            _auth_error.set()
             return None
 
-        if resp.status_code != 200:
-            logger.debug(f"HTTP {resp.status_code} for {location_name}")
+        if r.status_code != 200:
             return []
 
-        data = resp.json()
+        data = r.json()
         rows = data.get("data", [])
-
         if not rows:
             return []
 
         results = []
         for row in rows:
-            # CRITICAL: price is in 'nominal', NOT 'harga' (which is always 0)
-            harga = row.get("nominal")
+            harga = row.get("nominal")  # CRITICAL: 'nominal', NOT 'harga'
             if harga is None or harga == 0:
                 continue
-
             results.append({
-                "tanggal": row.get("date", "")[:10],
-                "provinsi": "Jawa Timur",
-                "kode_bps": location_id,
-                "kota": location_name,
-                "komoditas": com_name,
-                "satuan": row.get("denomination", "kg"),
-                "harga": harga,
-                "fluktuasi": row.get("fluc"),
-                "is_min": row.get("isMin"),
-                "is_max": row.get("isMax"),
-                "is_tetap": row.get("isTetap"),
-                "source": "PIHPS_API",
+                "tanggal":       row.get("date", "")[:10],
+                "provinsi":      "Jawa Timur",
+                "kode_bps":      loc_id,
+                "kota":          loc_name,
+                "komoditas":     com_name,
+                "satuan":        row.get("denomination", "kg"),
+                "harga":         harga,
+                "fluktuasi":     row.get("fluc"),
+                "is_min":        row.get("isMin"),
+                "is_max":        row.get("isMax"),
+                "is_tetap":      row.get("isTetap"),
+                "source":        "PIHPS_API",
             })
-
         return results
 
     except requests.exceptions.Timeout:
-        logger.warning(f"Timeout for {location_name} ({start_date})")
+        logger.debug(f"Timeout: {loc_name} {start}")
         return []
     except json.JSONDecodeError:
-        logger.warning(f"Invalid JSON for {location_name} ({start_date})")
+        logger.debug(f"Bad JSON: {loc_name} {start}")
         return []
     except Exception as e:
-        logger.error(f"Error fetching {location_name}: {e}")
+        logger.debug(f"Error: {loc_name} {start}: {e}")
         return []
 
 
-def collect_via_getchart(
+# ============================================================
+# WORKER: All months for ONE kab/kota (runs in thread)
+# ============================================================
+def _worker_fetch_location(
+    session: requests.Session,
+    temp_id: str,
+    com_name: str,
+    loc_id: str,
+    loc_name: str,
+    periods: List[Tuple[date, date]],
+    completed_keys: set,
+    delay: float,
+) -> Tuple[str, List[Dict], List[str]]:
+    """Thread worker: fetch all months for one location."""
+    rows_all = []
+    failed = []
+
+    for period_start, period_end in periods:
+        if _auth_error.is_set():
+            break
+
+        ckpt_key = f"{loc_id}_{period_start.strftime('%Y%m')}"
+        if ckpt_key in completed_keys:
+            continue
+
+        rows = fetch_one_month(
+            session, temp_id, com_name,
+            loc_id, loc_name,
+            period_start, period_end,
+        )
+
+        if rows is None:
+            break  # Auth error
+        elif rows:
+            rows_all.extend(rows)
+        else:
+            failed.append(period_start.strftime("%Y-%m"))
+
+        time.sleep(delay)
+
+    return loc_id, rows_all, failed
+
+
+# ============================================================
+# MAIN API COLLECTOR (concurrent)
+# ============================================================
+def collect_via_api(
     commodity_key: str = "beras_kualitas_medium_2",
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     n_days: int = 90,
-    locations: Optional[Dict[str, str]] = None,
     cookie: Optional[str] = None,
     xsrf_token: Optional[str] = None,
-    delay: float = REQUEST_DELAY,
-    save_checkpoints: bool = True,
+    workers: int = DEFAULT_WORKERS,
+    delay: float = DEFAULT_DELAY,
 ) -> Optional[pd.DataFrame]:
     """
-    Collect price data via GetChartData API for one commodity.
+    Concurrent GetChartData scraper.
 
-    This is the PRIMARY and most reliable method. It loops through
-    all kab/kota × monthly periods and aggregates the results.
-
-    Args:
-        commodity_key: Key from COMMODITY_TEMPLATES
-        start_date: Start date (default: n_days ago)
-        end_date: End date (default: today)
-        n_days: Days of history if start_date not given
-        locations: Dict of {locationId: name} (default: all Jatim)
-        cookie: Browser cookie string
-        xsrf_token: XSRF token string
-        delay: Seconds between requests
-        save_checkpoints: Save per-kota checkpoint files
-
-    Returns:
-        DataFrame with price data, or None if auth error
+    Speed: 5 workers × 0.5s delay = ~7× faster than sequential 2.0s
     """
-    # Resolve commodity
-    comm_info = COMMODITY_TEMPLATES.get(commodity_key)
-    if not comm_info:
-        logger.error(f"Unknown commodity: {commodity_key}")
-        logger.info(f"Available: {list(COMMODITY_TEMPLATES.keys())}")
-        return None
-
-    temp_id = comm_info.get("tempId")
-    if not temp_id:
+    comm = COMMODITY_TEMPLATES.get(commodity_key)
+    if not comm or not comm.get("tempId"):
         logger.error(
-            f"No tempId for '{commodity_key}'. "
-            "You need to discover it from the PIHPS website:\n"
-            "  1. Open https://www.bi.go.id/hargapangan/ in Chrome\n"
-            "  2. Open DevTools (F12) → Network tab → filter XHR\n"
-            "  3. Select this commodity on the chart page\n"
-            "  4. Copy the 'tempId' parameter from the GetChartData request\n"
-            "  5. Add it to COMMODITY_TEMPLATES in this file"
+            f"No tempId for '{commodity_key}'.\n"
+            f"Available: {[k for k,v in COMMODITY_TEMPLATES.items() if v.get('tempId')]}\n"
+            "Discover new tempIds: F12 → Network → select commodity → copy tempId"
         )
         return None
 
-    com_name = comm_info["comName"]
+    temp_id = comm["tempId"]
+    com_name = comm["comName"]
 
-    # Resolve dates
     if end_date is None:
         end_date = date.today()
     if start_date is None:
         start_date = end_date - timedelta(days=n_days)
 
-    # Resolve locations
-    if locations is None:
-        locations = KAB_KOTA_JATIM
-
-    # Generate monthly periods
     periods = generate_monthly_periods(start_date, end_date)
+    locations = KAB_KOTA_JATIM
+    total_requests = len(locations) * len(periods)
 
     logger.info("=" * 60)
     logger.info(f"PIHPS GetChartData — {com_name}")
-    logger.info(f"Range: {start_date} → {end_date}")
-    logger.info(f"Locations: {len(locations)} kab/kota")
-    logger.info(f"Periods: {len(periods)} months")
-    logger.info(f"Total requests: ~{len(locations) * len(periods)}")
+    logger.info(f"Range     : {start_date} → {end_date} ({len(periods)} months)")
+    logger.info(f"Locations : {len(locations)} kab/kota")
+    logger.info(f"Requests  : ~{total_requests}")
+    logger.info(f"Workers   : {workers} concurrent | delay {delay}s")
+    est_min = (total_requests * delay) / workers / 60
+    logger.info(f"Est. time : ~{est_min:.1f} min")
     logger.info("=" * 60)
 
-    # Get auth headers
-    headers = get_api_headers(cookie, xsrf_token)
+    # Auth
+    ck, xr = resolve_tokens(cookie, xsrf_token)
+    if not ck:
+        logger.warning("No auth tokens — API will likely return 401/403.")
 
-    # Setup checkpoint directory
+    session = create_fast_session(ck, xr)
+
+    # Checkpoint / resume
     ckpt_dir = os.path.join(DATA_RAW_DIR, "pihps", "checkpoints")
     ensure_dir(ckpt_dir)
-
-    # Load existing checkpoint to enable resume
-    ckpt_file = os.path.join(ckpt_dir, f"ckpt_{commodity_key}_progress.json")
+    progress_file = os.path.join(ckpt_dir, f"progress_{commodity_key}.json")
     completed_keys = set()
-    if os.path.exists(ckpt_file):
+    if os.path.exists(progress_file):
         try:
-            with open(ckpt_file) as f:
+            with open(progress_file) as f:
                 completed_keys = set(json.load(f).get("completed", []))
             if completed_keys:
-                logger.info(f"Resuming: {len(completed_keys)} location-months done")
+                logger.info(f"Resuming: {len(completed_keys)} location-months already done")
         except Exception:
             pass
 
+    _auth_error.clear()
+
+    # ---- Concurrent execution ----
     all_records = []
-    failed = []
-    auth_error = False
-    total_requests = len(locations) * len(periods)
-    counter = 0
+    all_failed = []
+    loc_items = list(locations.items())
 
-    for loc_id, loc_name in locations.items():
-        if auth_error:
-            break
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {}
+        for loc_id, loc_name in loc_items:
+            f = pool.submit(
+                _worker_fetch_location,
+                session, temp_id, com_name,
+                loc_id, loc_name,
+                periods, completed_keys, delay,
+            )
+            futures[f] = (loc_id, loc_name)
 
-        loc_records = []
+        done_count = 0
+        for future in as_completed(futures):
+            loc_id, loc_name = futures[future]
+            done_count += 1
 
-        for period_start, period_end in periods:
-            counter += 1
-            ckpt_key = f"{loc_id}_{period_start.strftime('%Y%m')}"
-
-            # Skip if already done (resume support)
-            if ckpt_key in completed_keys:
+            try:
+                lid, rows, failed = future.result()
+            except Exception as e:
+                logger.error(f"Worker crash {loc_name}: {e}")
                 continue
 
-            label = period_start.strftime("%Y-%m")
-            logger.debug(
-                f"[{counter}/{total_requests}] {loc_name} {label}"
-            )
-
-            rows = fetch_getchart_one_month(
-                headers, temp_id, com_name,
-                loc_id, loc_name,
-                period_start, period_end,
-            )
-
-            if rows is None:
-                # Auth error — stop everything
-                auth_error = True
-                logger.error("Auth error — stopping collection")
-                break
-            elif rows:
+            if rows:
                 all_records.extend(rows)
-                loc_records.extend(rows)
                 logger.info(
-                    f"  [{counter}/{total_requests}] {loc_name} {label}: "
+                    f"[{done_count}/{len(loc_items)}] {loc_name}: "
                     f"{len(rows)} rows"
                 )
-            else:
-                logger.debug(
-                    f"  [{counter}/{total_requests}] {loc_name} {label}: "
-                    "empty"
-                )
-                failed.append((loc_id, loc_name, label))
+                for r in rows:
+                    tgl = r.get("tanggal", "")[:7].replace("-", "")
+                    completed_keys.add(f"{lid}_{tgl}")
 
-            # Mark as completed
-            completed_keys.add(ckpt_key)
-            time.sleep(delay)
+            if failed:
+                all_failed.extend((lid, loc_name, lbl) for lbl in failed)
 
-        # Save per-location checkpoint
-        if save_checkpoints and loc_records:
-            loc_ckpt = os.path.join(
-                ckpt_dir,
-                f"ckpt_{commodity_key}_{loc_id}.csv"
-            )
-            _save_records_csv(loc_records, loc_ckpt)
+            # Save progress every 5 locations
+            if done_count % 5 == 0:
+                _save_progress(progress_file, completed_keys)
 
-        # Update progress checkpoint
-        if save_checkpoints:
-            with open(ckpt_file, "w") as f:
-                json.dump({
-                    "completed": list(completed_keys),
-                    "last_updated": datetime.now().isoformat(),
-                }, f)
+    _save_progress(progress_file, completed_keys)
 
-    # Handle auth error
-    if auth_error:
+    # Auth error message
+    if _auth_error.is_set():
         logger.error(
-            "\n" + "=" * 60 + "\n"
-            "  AUTHENTICATION ERROR\n"
-            "  Cookie/Xsrf-Token are expired or invalid.\n\n"
-            "  To fix:\n"
+            "\n" + "=" * 60 +
+            "\n  AUTH ERROR — Cookie/Xsrf-Token expired!\n\n"
+            "  Fix:\n"
             "  1. Open https://www.bi.go.id/hargapangan/ in Chrome\n"
-            "  2. Open DevTools (F12) → Network tab\n"
-            "  3. Click any commodity on the chart\n"
-            "  4. Find the GetChartData request\n"
-            "  5. Right-click → Copy as cURL\n"
-            "  6. Extract Cookie and Xsrf-Token values\n"
-            "  7. Run: python collectors/pihps_collector.py --refresh-tokens\n"
-            "     OR update TOKEN_FILE manually\n\n"
-            "  The script will resume from where it stopped.\n"
-            + "=" * 60
+            "  2. F12 → Network → XHR → click commodity on chart\n"
+            "  3. Find GetChartData → copy Cookie & Xsrf-Token\n"
+            "  4. Run: python collectors/pihps_collector.py --refresh-tokens\n"
+            "     OR:  --cookie \"...\" --xsrf \"...\"\n\n"
+            "  Script will RESUME from where it stopped.\n" +
+            "=" * 60
         )
         if not all_records:
             return None
 
-    # Build DataFrame
     if not all_records:
-        logger.warning("No data collected via GetChartData")
+        logger.warning("No data from GetChartData")
         return None
 
     df = pd.DataFrame(all_records)
@@ -752,363 +555,83 @@ def collect_via_getchart(
     df = df.drop_duplicates(subset=["kode_bps", "tanggal"], keep="first")
 
     logger.info(
-        f"\nGetChartData results: {len(df)} rows | "
+        f"Result: {len(df)} rows | "
         f"{df['kode_bps'].nunique()} locations | "
-        f"{df['tanggal'].nunique()} days"
+        f"{df['tanggal'].nunique()} days | "
+        f"{df['tanggal'].min().date()} → {df['tanggal'].max().date()}"
     )
-
-    if failed:
-        logger.info(f"Empty responses: {len(failed)}")
-
     return df
 
 
-def collect_via_getchart_multi(
-    commodity_keys: Optional[List[str]] = None,
-    **kwargs,
-) -> Optional[pd.DataFrame]:
-    """
-    Collect data for MULTIPLE commodities via GetChartData.
-    Only commodities with a known tempId will be collected.
-    """
+def collect_via_api_multi(commodity_keys=None, **kwargs):
+    """Collect multiple commodities."""
     if commodity_keys is None:
-        # Collect all commodities that have a tempId
-        commodity_keys = [
-            k for k, v in COMMODITY_TEMPLATES.items()
-            if v.get("tempId")
-        ]
-
+        commodity_keys = [k for k, v in COMMODITY_TEMPLATES.items() if v.get("tempId")]
     if not commodity_keys:
-        logger.error(
-            "No commodities with known tempId! "
-            "Currently only 'beras_kualitas_medium_2' has a confirmed tempId. "
-            "See COMMODITY_TEMPLATES for instructions on discovering more."
-        )
+        logger.error("No commodities with known tempId!")
         return None
 
-    logger.info(f"Collecting {len(commodity_keys)} commodities: {commodity_keys}")
-
-    all_dfs = []
+    dfs = []
     for key in commodity_keys:
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Commodity: {key}")
-        logger.info(f"{'='*60}")
-        df = collect_via_getchart(commodity_key=key, **kwargs)
+        _auth_error.clear()
+        df = collect_via_api(commodity_key=key, **kwargs)
         if df is not None and not df.empty:
-            all_dfs.append(df)
-
-    if not all_dfs:
-        return None
-
-    combined = pd.concat(all_dfs, ignore_index=True)
-    logger.info(
-        f"\nCombined: {len(combined)} rows, "
-        f"{combined['komoditas'].nunique()} commodities"
-    )
-    return combined
+            dfs.append(df)
+    return pd.concat(dfs, ignore_index=True) if dfs else None
 
 
-# ============================================================
-# APPROACH 2: AJAX Discovery + Other Endpoints
-# ============================================================
-def discover_ajax_endpoints(session: requests.Session) -> List[str]:
-    """Crawl PIHPS pages to discover AJAX endpoints from JavaScript."""
-    if not HAS_BS4:
-        logger.warning("BeautifulSoup not available — skipping AJAX discovery")
-        return []
-
-    logger.info("Discovering AJAX endpoints...")
-    discovered = set()
-
-    pages = [
-        PIHPS_BASE,
-        f"{PIHPS_BASE}/TabelHarga/PasarTradisionalDaerah",
-        f"{PIHPS_BASE}/TabelHarga/PasarTradisionalKomoditas",
-    ]
-
-    for page_url in pages:
-        try:
-            resp = session.get(page_url, timeout=30)
-            if resp.status_code != 200:
-                continue
-
-            # Pattern: url: "/hargapangan/..."
-            urls = re.findall(
-                r'url\s*:\s*["\'](/hargapangan/[^"\']+)["\']',
-                resp.text
-            )
-            discovered.update(urls)
-
-            # Pattern: $.ajax/$.post/$.get
-            urls = re.findall(
-                r'\$\.(?:ajax|post|get)\s*\(\s*["\']([^"\']+)["\']',
-                resp.text
-            )
-            discovered.update(u for u in urls if "/hargapangan/" in u)
-
-            # Pattern: fetch(...)
-            urls = re.findall(
-                r'fetch\s*\(\s*["\']([^"\']+)["\']',
-                resp.text
-            )
-            discovered.update(u for u in urls if "/hargapangan/" in u)
-
-            time.sleep(0.5)
-
-        except Exception as e:
-            logger.debug(f"Error checking {page_url}: {e}")
-
-    if discovered:
-        logger.info(f"Discovered {len(discovered)} endpoint(s):")
-        for url in sorted(discovered):
-            logger.info(f"  -> {url}")
-
-    return sorted(discovered)
-
-
-def try_alternative_ajax(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    n_days: int = 30,
-) -> Optional[pd.DataFrame]:
-    """
-    Try alternative AJAX endpoints (besides GetChartData).
-    Used as a fallback when GetChartData auth fails.
-    """
-    session = requests.Session()
-    session.headers.update(BROWSER_HEADERS)
-
+def _save_progress(filepath, completed_keys):
     try:
-        session.get(PIHPS_BASE, timeout=30)
+        with open(filepath, "w") as f:
+            json.dump({"completed": sorted(completed_keys),
+                        "updated_at": datetime.now().isoformat()}, f)
     except Exception:
         pass
 
-    if start_date is None:
-        start_date = (datetime.now() - timedelta(days=n_days)).strftime("%Y-%m-%d")
-    if end_date is None:
-        end_date = datetime.now().strftime("%Y-%m-%d")
-
-    # Known candidate endpoints
-    endpoints = [
-        f"{PIHPS_BASE}/TabelHarga/PasarTradisionalDaerahData",
-        f"{PIHPS_BASE}/TabelHarga/PasarTradisionalKomoditasData",
-        f"{PIHPS_BASE}/TabelHarga/GetData",
-        f"{PIHPS_BASE}/Home/GetHargaData",
-    ]
-
-    # Add discovered ones
-    discovered = discover_ajax_endpoints(session)
-    for ep in discovered:
-        full = f"https://www.bi.go.id{ep}" if ep.startswith("/") else ep
-        if full not in endpoints:
-            endpoints.append(full)
-
-    payloads = [
-        {
-            "provinsi": PIHPS_PROVINSI_JATIM,
-            "tanggalAwal": start_date,
-            "tanggalAkhir": end_date,
-            "jenisPasar": "1",
-        },
-        {
-            "draw": "1", "start": "0", "length": "1000",
-            "provinsi": PIHPS_PROVINSI_JATIM,
-            "tanggalAwal": start_date,
-            "tanggalAkhir": end_date,
-        },
-    ]
-
-    ajax_headers = {
-        "X-Requested-With": "XMLHttpRequest",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-    }
-
-    for endpoint in endpoints:
-        for payload in payloads:
-            try:
-                resp = session.post(
-                    endpoint, data=payload,
-                    headers=ajax_headers, timeout=30,
-                    allow_redirects=False,
-                )
-                if resp.status_code != 200:
-                    continue
-
-                ct = resp.headers.get("Content-Type", "")
-
-                if "json" in ct or resp.text.strip().startswith(("{", "[")):
-                    try:
-                        data = resp.json()
-                        df = _parse_generic_json(data)
-                        if df is not None and not df.empty:
-                            logger.info(
-                                f"Alt AJAX success: {endpoint} → {len(df)} rows"
-                            )
-                            return df
-                    except json.JSONDecodeError:
-                        pass
-
-                if HAS_BS4 and "<table" in resp.text.lower():
-                    df = _parse_html_table(resp.text)
-                    if df is not None and not df.empty:
-                        logger.info(
-                            f"Alt AJAX HTML: {endpoint} → {len(df)} rows"
-                        )
-                        return df
-
-            except Exception as e:
-                logger.debug(f"Alt endpoint error: {e}")
-
-            time.sleep(0.3)
-
-    return None
-
 
 # ============================================================
-# APPROACH 3: HTML SCRAPING
-# ============================================================
-def scrape_pihps_html(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    n_days: int = 30,
-) -> Optional[pd.DataFrame]:
-    """Scrape PIHPS by loading full pages and parsing HTML tables."""
-    if not HAS_BS4:
-        logger.warning("BeautifulSoup not available — cannot scrape HTML")
-        return None
-
-    session = requests.Session()
-    session.headers.update(BROWSER_HEADERS)
-
-    pages = [
-        f"{PIHPS_BASE}/TabelHarga/PasarTradisionalDaerah",
-        f"{PIHPS_BASE}/TabelHarga/PasarTradisionalKomoditas",
-    ]
-
-    for page_url in pages:
-        try:
-            logger.info(f"Scraping: {page_url}")
-            resp = session.get(page_url, timeout=30)
-            resp.raise_for_status()
-
-            df = _parse_html_table(resp.text)
-            if df is not None and not df.empty:
-                logger.info(f"Scraped {len(df)} rows from {page_url}")
-                return df
-
-        except Exception as e:
-            logger.warning(f"Scraping {page_url} failed: {e}")
-        time.sleep(1)
-
-    return None
-
-
-def _parse_html_table(html: str) -> Optional[pd.DataFrame]:
-    """Extract the best data table from HTML."""
-    if not HAS_BS4:
-        return None
-
-    soup = BeautifulSoup(html, "html.parser")
-    tables = soup.find_all("table")
-    if not tables:
-        return None
-
-    best_table = max(tables, key=lambda t: len(t.find_all("tr")))
-    rows = best_table.find_all("tr")
-    if len(rows) < 2:
-        return None
-
-    header_row = rows[0]
-    headers = [c.get_text(strip=True) for c in header_row.find_all(["th", "td"])]
-    has_th = len(header_row.find_all("th")) > 0
-    data_start = 1 if has_th else 0
-
-    # Handle multi-row headers
-    if has_th and len(rows) > 1:
-        sub_ths = rows[1].find_all("th")
-        if sub_ths:
-            headers.extend([th.get_text(strip=True) for th in sub_ths])
-            data_start = 2
-
-    data = []
-    for row in rows[data_start:]:
-        cells = [td.get_text(strip=True) for td in row.find_all("td")]
-        if cells and any(c for c in cells):
-            data.append(cells)
-
-    if not data:
-        return None
-
-    max_cols = max(len(r) for r in data)
-    if len(headers) < max_cols:
-        headers.extend([f"col_{i}" for i in range(len(headers), max_cols)])
-    headers = headers[:max_cols]
-    data = [r + [""] * (max_cols - len(r)) for r in data]
-
-    df = pd.DataFrame(data, columns=headers)
-    return _normalize_pihps_dataframe(df)
-
-
-# ============================================================
-# APPROACH 4: MANUAL FILE PROCESSING
+# MANUAL FILE PROCESSING
 # ============================================================
 def process_manual_file(filepath: str) -> Optional[pd.DataFrame]:
     """
-    Process manually downloaded PIHPS data.
-
-    How to get the file:
-    1. Go to https://www.bi.go.id/hargapangan/TabelHarga/PasarTradisionalDaerah
-    2. Select Provinsi = Jawa Timur, set date range
-    3. Click "Lihat Laporan" then "Download"
-    4. Run: python collectors/pihps_collector.py --approach manual --file yourfile.csv
+    Process downloaded PIHPS data (CSV/Excel/JSON).
+    Download: bi.go.id/hargapangan → Tabel Harga → Download
     """
-    logger.info(f"Processing manual file: {filepath}")
-
+    logger.info(f"Processing: {filepath}")
     if not os.path.exists(filepath):
-        logger.error(f"File not found: {filepath}")
+        logger.error(f"Not found: {filepath}")
         return None
 
     ext = os.path.splitext(filepath)[1].lower()
-
     try:
         if ext == ".csv":
-            df = _read_csv_flexible(filepath)
+            df = _read_csv_flex(filepath)
         elif ext in [".xlsx", ".xls"]:
             df = pd.read_excel(filepath)
         elif ext == ".json":
             with open(filepath) as f:
                 data = json.load(f)
-            if isinstance(data, list):
-                df = pd.DataFrame(data)
-            elif isinstance(data, dict) and "data" in data:
-                df = pd.DataFrame(data["data"])
-            else:
-                df = pd.DataFrame([data])
+            raw = data.get("data", data) if isinstance(data, dict) else data
+            df = pd.DataFrame(raw)
         else:
-            logger.error(f"Unsupported format: {ext}")
+            logger.error(f"Unsupported: {ext}")
             return None
     except Exception as e:
-        logger.error(f"Error reading file: {e}")
+        logger.error(f"Read error: {e}")
         return None
 
     if df is None or df.empty:
-        logger.error("File produced empty DataFrame")
         return None
+    logger.info(f"Raw: {len(df)} rows, cols: {list(df.columns)}")
+    return _normalize_df(df)
 
-    logger.info(f"Raw file: {len(df)} rows, columns: {list(df.columns)}")
-    return _normalize_pihps_dataframe(df)
 
-
-def _read_csv_flexible(filepath: str) -> Optional[pd.DataFrame]:
-    """Read CSV with auto-detected encoding and delimiter."""
-    for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1252", "iso-8859-1"]:
-        for sep in [",", ";", "\t", "|"]:
+def _read_csv_flex(filepath):
+    for enc in ["utf-8", "utf-8-sig", "latin-1", "cp1252"]:
+        for sep in [",", ";", "\t"]:
             try:
-                df = pd.read_csv(
-                    filepath, encoding=enc, sep=sep,
-                    on_bad_lines="skip", engine="python"
-                )
+                df = pd.read_csv(filepath, encoding=enc, sep=sep,
+                                 on_bad_lines="skip", engine="python")
                 if len(df.columns) > 1 and len(df) > 0:
                     return df
             except Exception:
@@ -1119,397 +642,204 @@ def _read_csv_flexible(filepath: str) -> Optional[pd.DataFrame]:
 # ============================================================
 # DATA NORMALIZATION
 # ============================================================
-def _normalize_pihps_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize raw PIHPS data into consistent schema."""
+def _normalize_df(df):
+    """Normalize any raw PIHPS format → standard schema."""
     if df is None or df.empty:
         return df
 
     df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
 
-    # Detect wide vs long format
-    commodity_kw = [
-        "beras", "cabai", "bawang", "daging", "telur",
-        "gula", "minyak", "ayam", "sapi", "rawit",
-    ]
-    commodity_cols = [
-        c for c in df.columns
-        if any(kw in c for kw in commodity_kw)
-    ]
+    comm_kw = ["beras", "cabai", "bawang", "daging", "telur", "gula", "minyak"]
+    comm_cols = [c for c in df.columns if any(k in c for k in comm_kw)]
 
-    if len(commodity_cols) >= 3:
-        logger.info(f"Wide format detected ({len(commodity_cols)} commodity cols)")
-        df = _melt_wide_format(df, commodity_cols)
+    if len(comm_cols) >= 3:
+        # Wide → long
+        date_col = _find_col(df.columns, ["tanggal", "date", "tgl"])
+        city_col = _find_col(df.columns, ["kota", "kabupaten", "kab_kota_nama"])
+        id_vars = [c for c in [date_col, city_col] if c]
+        if not id_vars:
+            id_vars = [c for c in df.columns if c not in comm_cols][:2]
+        df = df.melt(id_vars=id_vars, value_vars=comm_cols,
+                     var_name="komoditas", value_name="harga")
+        rn = {}
+        if date_col: rn[date_col] = "tanggal"
+        if city_col: rn[city_col] = "kota"
+        df = df.rename(columns=rn)
     else:
-        df = _rename_long_format(df)
+        rn = {}
+        for c in df.columns:
+            cl = c.lower()
+            if cl in ["tanggal", "date", "tgl"]:          rn[c] = "tanggal"
+            elif cl in ["kota", "kabupaten", "kab_kota_nama"]: rn[c] = "kota"
+            elif cl in ["komoditas", "commodity"]:         rn[c] = "komoditas"
+            elif cl in ["harga", "price", "nominal"]:      rn[c] = "harga"
+            elif cl in ["kab_kota_id", "kode_bps"]:        rn[c] = "kode_bps"
+            elif cl in ["satuan", "denomination"]:         rn[c] = "satuan"
+        df = df.rename(columns=rn)
 
-    # Clean prices
-    if "harga_raw" in df.columns:
-        df["harga"] = df["harga_raw"].astype(str).apply(clean_price_string)
-    elif "harga" in df.columns and df["harga"].dtype == object:
+    if "harga" in df.columns and df["harga"].dtype == object:
         df["harga"] = df["harga"].astype(str).apply(clean_price_string)
-
-    # Parse dates
-    if "tanggal" in df.columns:
-        df["tanggal"] = pd.to_datetime(df["tanggal"], errors="coerce", dayfirst=True)
-
-    # Filter invalid prices
     if "harga" in df.columns:
         df["harga"] = pd.to_numeric(df["harga"], errors="coerce")
         df = df[df["harga"].notna() & (df["harga"] > 0)]
-
-    # Metadata
+    if "tanggal" in df.columns:
+        df["tanggal"] = pd.to_datetime(df["tanggal"], errors="coerce", dayfirst=True)
     if "provinsi" not in df.columns:
         df["provinsi"] = "Jawa Timur"
     if "source" not in df.columns:
         df["source"] = "PIHPS_BI"
     df["processed_at"] = datetime.now().isoformat()
-
     return df
 
 
-def _melt_wide_format(df, commodity_cols):
-    """Convert wide-format to long format."""
-    date_col = _find_column(df.columns, ["tanggal", "date", "tgl", "periode"])
-    city_col = _find_column(df.columns, ["kota", "kabupaten", "city", "wilayah", "kab/kota"])
-
-    id_vars = [c for c in [date_col, city_col] if c is not None]
-    if not id_vars:
-        id_vars = [c for c in df.columns if c not in commodity_cols][:2]
-
-    df_long = df.melt(
-        id_vars=id_vars, value_vars=commodity_cols,
-        var_name="komoditas", value_name="harga_raw",
-    )
-    rename = {}
-    if date_col: rename[date_col] = "tanggal"
-    if city_col: rename[city_col] = "kota"
-    if rename:
-        df_long = df_long.rename(columns=rename)
-
-    df_long["nama_komoditas"] = df_long["komoditas"].apply(
-        lambda x: x.replace("_", " ").title()
-    )
-    return df_long
-
-
-def _rename_long_format(df):
-    """Rename columns in long-format data."""
-    rename = {}
-    for col in df.columns:
-        cl = col.lower()
-        if cl in ["tanggal", "date", "tgl", "periode"]:
-            rename[col] = "tanggal"
-        elif cl in ["kota", "kabupaten", "city", "wilayah", "daerah",
-                     "kab_kota_nama"]:
-            rename[col] = "kota"
-        elif cl in ["komoditas", "commodity", "nama_komoditas", "item"]:
-            rename[col] = "komoditas"
-        elif cl in ["harga", "price", "nilai", "nominal"]:
-            rename[col] = "harga"
-        elif cl in ["satuan", "unit", "denomination"]:
-            rename[col] = "satuan"
-        elif cl in ["kab_kota_id", "kode_bps", "location_id"]:
-            rename[col] = "kode_bps"
-    return df.rename(columns=rename)
-
-
-def _find_column(columns, keywords):
-    for col in columns:
-        for kw in keywords:
-            if kw in str(col).lower():
-                return col
+def _find_col(columns, keywords):
+    for c in columns:
+        for k in keywords:
+            if k in str(c).lower():
+                return c
     return None
 
 
-def _parse_generic_json(data) -> Optional[pd.DataFrame]:
-    """Parse various JSON response formats."""
-    if isinstance(data, dict):
-        for key in ["data", "result", "items", "rows", "aaData"]:
-            if key in data and isinstance(data[key], list) and data[key]:
-                return _normalize_pihps_dataframe(pd.DataFrame(data[key]))
-    if isinstance(data, list) and data:
-        return _normalize_pihps_dataframe(pd.DataFrame(data))
-    return None
-
-
-def _save_records_csv(records: List[Dict], filepath: str):
-    """Save list of dicts to CSV."""
-    if not records:
-        return
-    ensure_dir(os.path.dirname(filepath))
-    with open(filepath, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=records[0].keys())
-        writer.writeheader()
-        writer.writerows(records)
-
-
 # ============================================================
-# APPROACH 5: REALISTIC SAMPLE DATA
+# SAMPLE DATA (for development only)
 # ============================================================
-def generate_sample_pihps_data(
-    n_days: int = 90,
-    cities: Optional[List[str]] = None,
-    commodities: Optional[List[str]] = None,
-    seed: int = 42,
-) -> pd.DataFrame:
-    """Generate realistic sample PIHPS data for development."""
-    import numpy as np
-
+def generate_sample_pihps_data(n_days=90, cities=None, commodities=None):
+    """Synthetic data — clearly marked source=SAMPLE_DATA."""
     if cities is None:
-        cities = (
-            PIHPS_JATIM_CITIES
-            if PIHPS_JATIM_CITIES
-            else list(KAB_KOTA_JATIM.values())[:10]
-        )
+        cities = PIHPS_JATIM_CITIES if PIHPS_JATIM_CITIES else [
+            "Kota Surabaya", "Kota Malang", "Kota Kediri",
+            "Kab. Jember", "Kota Madiun", "Kota Probolinggo",
+            "Kota Mojokerto", "Kota Blitar", "Kota Pasuruan", "Kota Batu",
+        ]
     if commodities is None:
         commodities = [
-            k for k in COMMODITY_TEMPLATES.keys()
-            if not k.startswith("minyak_goreng_kemasan")
-        ][:13]
+            "Beras Kualitas Medium II", "Cabai Merah Besar",
+            "Cabai Rawit Merah", "Bawang Merah Ukuran Sedang",
+            "Bawang Putih Ukuran Sedang", "Daging Ayam Ras Segar",
+            "Telur Ayam Ras Segar", "Gula Pasir Lokal", "Minyak Goreng Curah",
+        ]
 
-    base_prices = {
-        "beras_kualitas_bawah_1": 12_500,
-        "beras_kualitas_bawah_2": 11_800,
-        "beras_kualitas_medium_1": 14_200,
-        "beras_kualitas_medium_2": 13_500,
-        "beras_kualitas_super_1": 16_000,
-        "beras_kualitas_super_2": 15_200,
-        "cabai_merah_besar": 55_000,
-        "cabai_merah_keriting": 50_000,
-        "cabai_rawit_hijau": 45_000,
-        "cabai_rawit_merah": 65_000,
-        "bawang_merah": 42_000,
-        "bawang_putih": 40_000,
-        "daging_sapi_kualitas_1": 140_000,
-        "daging_sapi_kualitas_2": 125_000,
-        "daging_ayam_ras": 36_000,
-        "telur_ayam_ras": 29_000,
-        "gula_pasir_lokal": 18_500,
-        "gula_pasir_premium": 20_500,
-        "minyak_goreng_curah": 17_500,
+    base = {
+        "Beras Kualitas Medium II": 13500, "Cabai Merah Besar": 55000,
+        "Cabai Rawit Merah": 65000, "Bawang Merah Ukuran Sedang": 42000,
+        "Bawang Putih Ukuran Sedang": 40000, "Daging Ayam Ras Segar": 36000,
+        "Telur Ayam Ras Segar": 29000, "Gula Pasir Lokal": 18500,
+        "Minyak Goreng Curah": 17500,
     }
-    volatility = {
-        "beras_kualitas_bawah_1": 0.015,
-        "beras_kualitas_bawah_2": 0.015,
-        "beras_kualitas_medium_1": 0.015,
-        "beras_kualitas_medium_2": 0.015,
-        "beras_kualitas_super_1": 0.02,
-        "beras_kualitas_super_2": 0.02,
-        "cabai_merah_besar": 0.12,
-        "cabai_merah_keriting": 0.12,
-        "cabai_rawit_hijau": 0.14,
-        "cabai_rawit_merah": 0.15,
-        "bawang_merah": 0.10,
-        "bawang_putih": 0.06,
-        "daging_sapi_kualitas_1": 0.02,
-        "daging_sapi_kualitas_2": 0.02,
-        "daging_ayam_ras": 0.04,
-        "telur_ayam_ras": 0.03,
-        "gula_pasir_lokal": 0.015,
-        "gula_pasir_premium": 0.015,
-        "minyak_goreng_curah": 0.02,
-    }
-    city_premium = {
-        "Kota Surabaya": 1.05, "Kota Malang": 0.98,
-        "Kota Kediri": 0.95, "Kab. Jember": 0.93,
-        "Kota Madiun": 0.94, "Kota Probolinggo": 0.96,
-        "Kota Mojokerto": 0.95, "Kota Blitar": 0.92,
-        "Kota Pasuruan": 0.96, "Kota Batu": 0.99,
-        # Fallback for PIHPS_JATIM_CITIES (short names)
-        "Surabaya": 1.05, "Malang": 0.98, "Kediri": 0.95,
-        "Jember": 0.93, "Madiun": 0.94, "Probolinggo": 0.96,
-        "Mojokerto": 0.95, "Blitar": 0.92, "Pasuruan": 0.96,
-        "Batu": 0.99,
+    vol = {
+        "Beras Kualitas Medium II": 0.015, "Cabai Merah Besar": 0.12,
+        "Cabai Rawit Merah": 0.15, "Bawang Merah Ukuran Sedang": 0.10,
+        "Bawang Putih Ukuran Sedang": 0.06, "Daging Ayam Ras Segar": 0.04,
+        "Telur Ayam Ras Segar": 0.03, "Gula Pasir Lokal": 0.015,
+        "Minyak Goreng Curah": 0.02,
     }
 
-    np.random.seed(seed)
+    np.random.seed(42)
     records = []
     end_dt = datetime.now()
-
-    for day_offset in range(n_days):
-        dt = end_dt - timedelta(days=n_days - 1 - day_offset)
+    for d in range(n_days):
+        dt = end_dt - timedelta(days=n_days - 1 - d)
         if dt.weekday() >= 5:
-            continue  # Skip weekends
-
-        for commodity in commodities:
-            bp = base_prices.get(commodity, 30_000)
-            vol = volatility.get(commodity, 0.05)
-            info = COMMODITY_TEMPLATES.get(commodity, {})
-
-            month = dt.month
-            if commodity.startswith("cabai") or commodity.startswith("bawang"):
-                seasonal = 1.0 + (0.15 if month in [11, 12, 1, 2] else -0.05)
-            else:
-                seasonal = 1.0 + 0.02 * (1 if month in [3, 4, 5] else 0)
-
-            trend = 1.0 + 0.0001 * day_offset
-
+            continue
+        for comm in commodities:
+            bp = base.get(comm, 30000)
+            v = vol.get(comm, 0.05)
+            seasonal = 1.15 if (comm.startswith("Cabai") and dt.month in [11,12,1,2]) else 1.0
             for city in cities:
-                premium = city_premium.get(city, 0.95)
-                noise = np.random.normal(0, vol * 0.3)
-                price = bp * seasonal * trend * premium * (1 + noise)
-                price = round(max(price, bp * 0.4), -2)
-
+                noise = np.random.normal(0, v * 0.3)
+                price = round(bp * seasonal * (1 + noise) * (1 + 0.0001 * d), -2)
                 records.append({
-                    "tanggal": dt.strftime("%Y-%m-%d"),
-                    "kota": city,
-                    "komoditas": commodity,
-                    "nama_komoditas": info.get("nama",
-                                               commodity.replace("_", " ").title()),
-                    "harga": price,
-                    "satuan": info.get("satuan", "Rp/kg"),
-                    "jenis_pasar": "tradisional",
-                    "provinsi": "Jawa Timur",
+                    "tanggal": dt.strftime("%Y-%m-%d"), "kota": city,
+                    "komoditas": comm, "harga": max(price, bp * 0.4),
+                    "satuan": "Rp/kg", "provinsi": "Jawa Timur",
                     "source": "SAMPLE_DATA",
                 })
 
     df = pd.DataFrame(records)
     df["tanggal"] = pd.to_datetime(df["tanggal"])
-
-    logger.info(
-        f"Sample data: {len(df)} records | "
-        f"{len(cities)} cities | {len(commodities)} commodities | "
-        f"{df['tanggal'].nunique()} trading days"
-    )
+    logger.info(f"Sample: {len(df)} rows | {len(cities)} cities | "
+                f"{len(commodities)} commodities")
     return df
 
 
 # ============================================================
-# MAIN ORCHESTRATOR
+# MAIN ENTRY POINT — called by run_all.py
 # ============================================================
 def collect_pihps_data(
-    approach: str = "auto",
-    manual_file: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    n_days: int = 90,
-    use_sample: bool = False,
-    commodity_key: str = "beras_kualitas_medium_2",
-    all_commodities: bool = False,
-    cookie: Optional[str] = None,
-    xsrf_token: Optional[str] = None,
-) -> Optional[pd.DataFrame]:
+    approach="auto", manual_file=None,
+    start_date=None, end_date=None, n_days=90,
+    use_sample=False,
+    commodity_key="beras_kualitas_medium_2",
+    all_commodities=False,
+    cookie=None, xsrf_token=None,
+    workers=DEFAULT_WORKERS, delay=DEFAULT_DELAY,
+):
     """
-    Main entry point for PIHPS data collection.
+    Main entry point.
 
-    Args:
-        approach: 'auto' | 'api' | 'scrape' | 'manual' | 'sample'
-        manual_file: Path to CSV/Excel file
-        start_date: Start date (YYYY-MM-DD)
-        end_date: End date (YYYY-MM-DD)
-        n_days: Days of history (default 90)
-        use_sample: Force sample data
-        commodity_key: Which commodity to collect
-        all_commodities: Collect all commodities with known tempId
-        cookie: Browser cookie (override saved)
-        xsrf_token: XSRF token (override saved)
+    run_all.py calls:
+      collect_pihps_data(approach="auto")       → try API, fallback sample
+      collect_pihps_data(use_sample=True)       → sample only
     """
     out_dir = os.path.join(DATA_PROCESSED_DIR, "pihps")
     ensure_dir(out_dir)
-    raw_dir = os.path.join(DATA_RAW_DIR, "pihps")
-    ensure_dir(raw_dir)
+    ensure_dir(os.path.join(DATA_RAW_DIR, "pihps"))
 
     df = None
+    sd = date.fromisoformat(start_date) if start_date else None
+    ed = date.fromisoformat(end_date) if end_date else None
 
-    # Parse date strings to date objects
-    sd = (
-        date.fromisoformat(start_date) if start_date
-        else date.today() - timedelta(days=n_days)
-    )
-    ed = date.fromisoformat(end_date) if end_date else date.today()
-
-    # ---- Sample data ----
+    # ---- Sample ----
     if use_sample or approach == "sample":
-        logger.info("Generating sample PIHPS data...")
+        logger.info("Generating SAMPLE data (not real)...")
         df = generate_sample_pihps_data(n_days=n_days)
 
     # ---- Manual file ----
     elif approach == "manual" and manual_file:
         df = process_manual_file(manual_file)
 
-    # ---- API (GetChartData primary) ----
+    # ---- API (real scraping) ----
     elif approach in ["api", "auto"]:
-        logger.info("=" * 60)
-        logger.info("STEP 1: GetChartData API (primary method)")
-        logger.info("=" * 60)
-
+        logger.info("Scraping REAL data from PIHPS Bank Indonesia...")
         if all_commodities:
-            df = collect_via_getchart_multi(
-                start_date=sd, end_date=ed,
+            df = collect_via_api_multi(
+                start_date=sd, end_date=ed, n_days=n_days,
                 cookie=cookie, xsrf_token=xsrf_token,
+                workers=workers, delay=delay,
             )
         else:
-            df = collect_via_getchart(
+            df = collect_via_api(
                 commodity_key=commodity_key,
-                start_date=sd, end_date=ed,
+                start_date=sd, end_date=ed, n_days=n_days,
                 cookie=cookie, xsrf_token=xsrf_token,
+                workers=workers, delay=delay,
             )
 
-        # Fallback: try alternative AJAX endpoints
+        # Auto fallback
         if (df is None or df.empty) and approach == "auto":
-            logger.info("=" * 60)
-            logger.info("STEP 2: Alternative AJAX endpoints")
-            logger.info("=" * 60)
-            df = try_alternative_ajax(
-                start_date=start_date, end_date=end_date, n_days=n_days,
-            )
-
-        # Fallback: HTML scraping
-        if (df is None or df.empty) and approach == "auto":
-            logger.info("=" * 60)
-            logger.info("STEP 3: HTML scraping")
-            logger.info("=" * 60)
-            df = scrape_pihps_html(
-                start_date=start_date, end_date=end_date, n_days=n_days,
-            )
-
-        # Final fallback: sample data
-        if (df is None or df.empty) and approach == "auto":
-            logger.warning("=" * 60)
             logger.warning(
-                "All methods failed. Generating sample data for development."
+                "API failed (auth error?). Falling back to SAMPLE data.\n"
+                "  → Fix: python collectors/pihps_collector.py --refresh-tokens"
             )
-            logger.warning(
-                "To get REAL data, either:\n"
-                "  a) Update Cookie/Xsrf-Token (see --refresh-tokens)\n"
-                "  b) Download from https://www.bi.go.id/hargapangan/ "
-                "and use --approach manual --file <file>\n"
-                "  c) Discover more tempIds for other commodities"
-            )
-            logger.warning("=" * 60)
             df = generate_sample_pihps_data(n_days=n_days)
 
-    # ---- Scrape only ----
-    elif approach == "scrape":
-        df = scrape_pihps_html(start_date, end_date, n_days)
-
-    # ---- Save output ----
+    # ---- Save ----
     if df is not None and not df.empty:
         out_path = os.path.join(out_dir, "harga_pangan_jatim.csv")
         df.to_csv(out_path, index=False)
         logger.info(f"Saved: {out_path} ({len(df)} rows)")
 
-        stats = {
+        save_json({
             "total_rows": len(df),
-            "source": (
-                df["source"].value_counts().to_dict()
-                if "source" in df.columns else {}
-            ),
+            "source": df["source"].value_counts().to_dict() if "source" in df.columns else {},
             "date_range": {
                 "min": str(df["tanggal"].min()) if "tanggal" in df.columns else None,
                 "max": str(df["tanggal"].max()) if "tanggal" in df.columns else None,
             },
-            "cities": (
-                sorted(df["kota"].unique().tolist())
-                if "kota" in df.columns else []
-            ),
-            "commodities": (
-                sorted(df["komoditas"].unique().tolist())
-                if "komoditas" in df.columns else []
-            ),
+            "cities": sorted(df["kota"].unique().tolist()) if "kota" in df.columns else [],
+            "commodities": sorted(df["komoditas"].unique().tolist()) if "komoditas" in df.columns else [],
             "saved_at": datetime.now().isoformat(),
-        }
-        save_json(stats, os.path.join(out_dir, "pihps_stats.json"))
+        }, os.path.join(out_dir, "pihps_stats.json"))
     else:
         logger.error("No PIHPS data collected!")
 
@@ -1523,122 +853,71 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="AgriFlow WP0 — Collect PIHPS Food Price Data",
+        description="AgriFlow WP0 — PIHPS Food Price Collector",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Speed: 38 kota × 12 months × 0.5s / 5 workers = ~2 min (was ~15 min)
+
 Examples:
-  # Development (sample data)
-  python collectors/pihps_collector.py --sample
-
-  # Live API — single commodity (requires valid tokens)
-  python collectors/pihps_collector.py --approach api
-  python collectors/pihps_collector.py --approach api --days 30
-
-  # Live API — all commodities with known tempId
-  python collectors/pihps_collector.py --approach api --all-commodities
-
-  # Auto (tries API → scrape → sample fallback)
-  python collectors/pihps_collector.py --approach auto
-
-  # Manual file
-  python collectors/pihps_collector.py --approach manual --file download.csv
-
-  # Refresh auth tokens
-  python collectors/pihps_collector.py --refresh-tokens
-
-How to get auth tokens:
-  1. Open https://www.bi.go.id/hargapangan/ in Chrome
-  2. Open DevTools (F12) → Network → XHR filter
-  3. Interact with the chart (select commodity)
-  4. Find GetChartData request → copy Cookie & Xsrf-Token
-  5. Save to .pihps_tokens.json or use --refresh-tokens
+  %(prog)s --sample                              # Fake data for dev
+  %(prog)s --approach api                        # REAL data from BI
+  %(prog)s --approach api --days 30              # Last 30 days
+  %(prog)s --approach api --workers 3 --delay 1  # Slower, safer
+  %(prog)s --approach manual --file data.csv     # Downloaded file
+  %(prog)s --refresh-tokens                      # Get fresh auth
         """
     )
-    parser.add_argument(
-        "--approach",
-        choices=["api", "scrape", "manual", "sample", "auto"],
-        default="auto",
-    )
-    parser.add_argument("--file", type=str, default=None)
-    parser.add_argument("--start", type=str, default=None)
-    parser.add_argument("--end", type=str, default=None)
+    parser.add_argument("--approach", choices=["api","manual","sample","auto"], default="auto")
+    parser.add_argument("--file", type=str)
+    parser.add_argument("--start", type=str, help="YYYY-MM-DD")
+    parser.add_argument("--end", type=str, help="YYYY-MM-DD")
     parser.add_argument("--days", type=int, default=90)
     parser.add_argument("--sample", action="store_true")
-    parser.add_argument(
-        "--commodity",
-        type=str, default="beras_kualitas_medium_2",
-        help="Commodity key (default: beras_kualitas_medium_2)",
-    )
-    parser.add_argument(
-        "--all-commodities", action="store_true",
-        help="Collect all commodities with known tempId",
-    )
-    parser.add_argument(
-        "--refresh-tokens", action="store_true",
-        help="Attempt to obtain fresh tokens from PIHPS website",
-    )
-    parser.add_argument(
-        "--cookie", type=str, default=None,
-        help="Browser Cookie header value",
-    )
-    parser.add_argument(
-        "--xsrf", type=str, default=None,
-        help="Xsrf-Token header value",
-    )
+    parser.add_argument("--commodity", default="beras_kualitas_medium_2")
+    parser.add_argument("--all-commodities", action="store_true")
+    parser.add_argument("--refresh-tokens", action="store_true")
+    parser.add_argument("--cookie", type=str)
+    parser.add_argument("--xsrf", type=str)
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
+    parser.add_argument("--delay", type=float, default=DEFAULT_DELAY)
 
     args = parser.parse_args()
 
-    # Handle --refresh-tokens
     if args.refresh_tokens:
-        print("Attempting to obtain fresh tokens...")
         tokens = obtain_fresh_tokens()
-        if tokens:
-            print(f"Tokens saved to {TOKEN_FILE}")
-            print(f"Cookie: {tokens.get('Cookie', '')[:60]}...")
-            print(f"Xsrf-Token: {tokens.get('Xsrf-Token', '')[:40]}...")
+        if tokens.get("Cookie"):
+            print(f"Saved to {TOKEN_FILE}")
+            print(f"Cookie:     {tokens['Cookie'][:60]}...")
+            print(f"Xsrf-Token: {tokens.get('Xsrf-Token','N/A')[:40]}...")
         else:
-            print("Could not obtain tokens automatically.")
-            print("Please extract them manually from browser DevTools.")
+            print("Failed. Extract manually from browser DevTools (F12).")
         sys.exit(0)
 
-    # Run collection
     df = collect_pihps_data(
-        approach=args.approach,
-        manual_file=args.file,
-        start_date=args.start,
-        end_date=args.end,
-        n_days=args.days,
-        use_sample=args.sample,
-        commodity_key=args.commodity,
+        approach=args.approach, manual_file=args.file,
+        start_date=args.start, end_date=args.end, n_days=args.days,
+        use_sample=args.sample, commodity_key=args.commodity,
         all_commodities=args.all_commodities,
-        cookie=args.cookie,
-        xsrf_token=args.xsrf,
+        cookie=args.cookie, xsrf_token=args.xsrf,
+        workers=args.workers, delay=args.delay,
     )
 
     if df is not None and not df.empty:
+        is_real = "PIHPS_API" in df.get("source", pd.Series()).values
+        tag = "REAL DATA" if is_real else "SAMPLE DATA"
         print(f"\n{'='*60}")
-        print(f"  PIHPS Data Collection Complete")
+        print(f"  PIHPS Collection Complete ({tag})")
         print(f"{'='*60}")
-        print(f"  Total rows:   {len(df)}")
+        print(f"  Rows:        {len(df):,}")
         if "tanggal" in df.columns:
-            print(f"  Date range:   {df['tanggal'].min()} → {df['tanggal'].max()}")
-            print(f"  Trading days: {df['tanggal'].nunique()}")
+            print(f"  Range:       {df['tanggal'].min().date()} → {df['tanggal'].max().date()}")
+            print(f"  Days:        {df['tanggal'].nunique()}")
         if "kota" in df.columns:
-            print(f"  Cities:       {df['kota'].nunique()}")
+            print(f"  Cities:      {df['kota'].nunique()}")
         if "komoditas" in df.columns:
-            print(f"  Commodities:  {df['komoditas'].nunique()}")
+            print(f"  Commodities: {df['komoditas'].nunique()}")
         if "source" in df.columns:
-            print(f"  Source:       {df['source'].value_counts().to_dict()}")
-
-        # Price preview
-        if "harga" in df.columns and "komoditas" in df.columns:
-            print(f"\n  Price summary (top 5 commodities):")
-            for comm in sorted(df["komoditas"].unique())[:5]:
-                sub = df[df["komoditas"] == comm]
-                print(
-                    f"    {comm}: avg Rp {sub['harga'].mean():,.0f} "
-                    f"({sub['harga'].min():,.0f}–{sub['harga'].max():,.0f})"
-                )
+            print(f"  Source:      {df['source'].value_counts().to_dict()}")
         print(f"{'='*60}\n")
     else:
-        print("\nNo data collected. Check logs for details.")
+        print("\nNo data. Check logs.")

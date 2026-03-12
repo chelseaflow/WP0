@@ -1,38 +1,54 @@
 {
-  "total_rows": 8320,
+  "total_rows": 228,
   "source": {
-    "SAMPLE_DATA": 8320
+    "PIHPS_API": 228
   },
   "date_range": {
-    "min": "2025-12-15 00:00:00",
-    "max": "2026-03-12 00:00:00"
+    "min": "2026-03-04 00:00:00",
+    "max": "2026-03-11 00:00:00"
   },
   "cities": [
-    "Batu",
-    "Blitar",
-    "Jember",
-    "Kediri",
-    "Madiun",
-    "Malang",
-    "Mojokerto",
-    "Pasuruan",
-    "Probolinggo",
-    "Surabaya"
+    "Kab. Bangkalan",
+    "Kab. Banyuwangi",
+    "Kab. Blitar",
+    "Kab. Bojonegoro",
+    "Kab. Bondowoso",
+    "Kab. Gresik",
+    "Kab. Jember",
+    "Kab. Jombang",
+    "Kab. Kediri",
+    "Kab. Lamongan",
+    "Kab. Lumajang",
+    "Kab. Madiun",
+    "Kab. Magetan",
+    "Kab. Malang",
+    "Kab. Mojokerto",
+    "Kab. Nganjuk",
+    "Kab. Ngawi",
+    "Kab. Pacitan",
+    "Kab. Pamekasan",
+    "Kab. Pasuruan",
+    "Kab. Ponorogo",
+    "Kab. Probolinggo",
+    "Kab. Sampang",
+    "Kab. Sidoarjo",
+    "Kab. Situbondo",
+    "Kab. Sumenep",
+    "Kab. Trenggalek",
+    "Kab. Tuban",
+    "Kab. Tulungagung",
+    "Kota Batu",
+    "Kota Blitar",
+    "Kota Kediri",
+    "Kota Madiun",
+    "Kota Malang",
+    "Kota Mojokerto",
+    "Kota Pasuruan",
+    "Kota Probolinggo",
+    "Kota Surabaya"
   ],
   "commodities": [
-    "bawang_merah",
-    "bawang_putih",
-    "beras_kualitas_bawah_1",
-    "beras_kualitas_bawah_2",
-    "beras_kualitas_medium_1",
-    "beras_kualitas_medium_2",
-    "beras_kualitas_super_1",
-    "beras_kualitas_super_2",
-    "cabai_merah_besar",
-    "cabai_merah_keriting",
-    "cabai_rawit_hijau",
-    "cabai_rawit_merah",
-    "daging_sapi_kualitas_1"
+    "Beras Kualitas Medium II"
   ],
-  "saved_at": "2026-03-12T09:21:43.358725"
+  "saved_at": "2026-03-12T10:11:26.414743"
 }
