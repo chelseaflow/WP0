@@ -1,0 +1,38 @@
+{
+  "total_rows": 8320,
+  "source": {
+    "SAMPLE_DATA": 8320
+  },
+  "date_range": {
+    "min": "2025-12-15 00:00:00",
+    "max": "2026-03-12 00:00:00"
+  },
+  "cities": [
+    "Batu",
+    "Blitar",
+    "Jember",
+    "Kediri",
+    "Madiun",
+    "Malang",
+    "Mojokerto",
+    "Pasuruan",
+    "Probolinggo",
+    "Surabaya"
+  ],
+  "commodities": [
+    "bawang_merah",
+    "bawang_putih",
+    "beras_kualitas_bawah_1",
+    "beras_kualitas_bawah_2",
+    "beras_kualitas_medium_1",
+    "beras_kualitas_medium_2",
+    "beras_kualitas_super_1",
+    "beras_kualitas_super_2",
+    "cabai_merah_besar",
+    "cabai_merah_keriting",
+    "cabai_rawit_hijau",
+    "cabai_rawit_merah",
+    "daging_sapi_kualitas_1"
+  ],
+  "saved_at": "2026-03-12T09:21:43.358725"
+}

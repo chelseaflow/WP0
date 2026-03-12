@@ -74,9 +74,12 @@ def run_distance(**kwargs):
     logger.info("STEP 4/4: DISTANCE MATRIX")
     logger.info("=" * 60)
     osrm_url = kwargs.get("osrm_url")
-    method = "osrm" if osrm_url else "haversine"
+    if osrm_url:
+        method = "osrm"
+    else:
+        method = "auto"  # tries OSRM public server first, fallback to haversine
     df = collect_distance_data(method=method, osrm_url=osrm_url)
-    return {"rows": len(df), "method": method, "status": "OK"}
+    return {"rows": len(df), "method": df["method"].iloc[0] if not df.empty else method, "status": "OK"}
 
 
 def generate_report(results):

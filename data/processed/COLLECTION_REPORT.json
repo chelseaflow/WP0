@@ -1,23 +1,43 @@
 {
-  "collected_at": "2026-03-11T20:59:42.593890",
+  "collected_at": "2026-03-12T09:21:43.361572",
   "results": {
-    "weather": {
-      "rows": 266,
+    "pihps": {
+      "rows": 8320,
       "status": "OK"
     }
   },
   "data_files": [
     {
       "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\COLLECTION_REPORT.json",
-      "size_kb": 0.6
+      "size_kb": 1.3
+    },
+    {
+      "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\bps\\produksi_pertanian_jatim.csv",
+      "size_kb": 46.2
+    },
+    {
+      "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\bps\\supply_balance_jatim.csv",
+      "size_kb": 18.3
     },
     {
       "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\distance\\distance_matrix_jatim.csv",
-      "size_kb": 152.5
+      "size_kb": 145.3
     },
     {
       "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\distance\\distance_pivot_km.csv",
       "size_kb": 9.7
+    },
+    {
+      "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\distance\\validation_report.csv",
+      "size_kb": 0.9
+    },
+    {
+      "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\pihps\\harga_pangan_jatim.csv",
+      "size_kb": 910.7
+    },
+    {
+      "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\pihps\\pihps_stats.json",
+      "size_kb": 0.8
     },
     {
       "path": "D:\\Research (Read every day!)\\Project Data\\Hackathon DEC\\Development\\WP0\\data\\processed\\weather\\weather_jatim_combined.csv",

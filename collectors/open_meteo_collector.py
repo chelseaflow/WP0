@@ -1,21 +1,17 @@
 """
-AgriFlow WP0 — Collector: Open-Meteo Weather Data
-====================================================
-Fetches daily weather data for all 38 kabupaten/kota Jawa Timur.
-No API key needed. REST API, returns JSON.
+AgriFlow WP0 — Collector: Open-Meteo Weather Data (FIXED)
+============================================================
+TWO strategies:
+  1. Forecast API with past_days=92 → ~3 months historical + 7 days forecast in ONE call
+  2. Archive API at archive-api.open-meteo.com → older data (separate subdomain!)
 
-Usage:
-    python -m collectors.open_meteo_collector
-    # or from WP0 root:
-    python collectors/open_meteo_collector.py
+Key fixes from v1:
+  - Archive API is at archive-api.open-meteo.com NOT api.open-meteo.com
+  - Forecast API's daily params differ from archive (no temperature_2m_mean, use max/min)
+  - past_days approach is simpler and more reliable for recent data
 """
 
-import os
-import sys
-import time
-import json
-
-# --- Path fix: ensure WP0 root is in sys.path ---
+import os, sys, time, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import requests
@@ -24,45 +20,63 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from config.settings import (
-    JATIM_KABUPATEN, OPEN_METEO_BASE_URL, OPEN_METEO_DAILY_PARAMS,
-    OPEN_METEO_TIMEZONE, DATA_RAW_DIR, DATA_PROCESSED_DIR
+    JATIM_KABUPATEN, OPEN_METEO_TIMEZONE, DATA_RAW_DIR, DATA_PROCESSED_DIR
 )
 from utils.helpers import setup_logger, ensure_dir, save_json, save_checkpoint, load_checkpoint
 
 logger = setup_logger("open_meteo")
 
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
-def fetch_weather_historical(lat, lon, start_date, end_date, daily_params=None):
-    params = daily_params or OPEN_METEO_DAILY_PARAMS
-    url = f"{OPEN_METEO_BASE_URL}/archive"
+
+def fetch_weather_combined(lat, lon, past_days=92, forecast_days=7):
+    """Use Forecast API with past_days. Most reliable for recent data."""
+    daily_params = [
+        "temperature_2m_max", "temperature_2m_min",
+        "precipitation_sum", "wind_speed_10m_max",
+    ]
     query = {
         "latitude": lat, "longitude": lon,
-        "start_date": start_date, "end_date": end_date,
-        "daily": ",".join(params), "timezone": OPEN_METEO_TIMEZONE,
+        "daily": ",".join(daily_params),
+        "timezone": OPEN_METEO_TIMEZONE,
+        "past_days": past_days, "forecast_days": forecast_days,
     }
     try:
-        resp = requests.get(url, params=query, timeout=30)
+        resp = requests.get(FORECAST_URL, params=query, timeout=30)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if data.get("error"):
+            logger.error(f"API error: {data.get('reason')}")
+            return None
+        return data
     except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to fetch weather for ({lat}, {lon}): {e}")
+        logger.error(f"Forecast API failed ({lat}, {lon}): {e}")
         return None
 
 
-def fetch_weather_forecast(lat, lon, forecast_days=7, daily_params=None):
-    params = daily_params or OPEN_METEO_DAILY_PARAMS
-    url = f"{OPEN_METEO_BASE_URL}/forecast"
+def fetch_weather_archive(lat, lon, start_date, end_date):
+    """Use Archive API (archive-api.open-meteo.com) for older data."""
+    daily_params = [
+        "temperature_2m_mean", "precipitation_sum",
+        "relative_humidity_2m_mean", "wind_speed_10m_max",
+    ]
     query = {
         "latitude": lat, "longitude": lon,
-        "daily": ",".join(params), "timezone": OPEN_METEO_TIMEZONE,
-        "forecast_days": forecast_days,
+        "start_date": start_date, "end_date": end_date,
+        "daily": ",".join(daily_params),
+        "timezone": OPEN_METEO_TIMEZONE,
     }
     try:
-        resp = requests.get(url, params=query, timeout=30)
+        resp = requests.get(ARCHIVE_URL, params=query, timeout=30)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if data.get("error"):
+            logger.error(f"Archive error: {data.get('reason')}")
+            return None
+        return data
     except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to fetch forecast for ({lat}, {lon}): {e}")
+        logger.error(f"Archive API failed ({lat}, {lon}): {e}")
         return None
 
 
@@ -73,28 +87,47 @@ def _parse_weather_response(data, kode, nama, source):
     dates = daily.get("time", [])
     records = []
     for i, date in enumerate(dates):
-        record = {"kode_bps": kode, "nama_kabupaten": nama, "date": date, "source": source}
-        for param in OPEN_METEO_DAILY_PARAMS:
-            values = daily.get(param, [])
-            record[param] = values[i] if i < len(values) else None
-        records.append(record)
+        rec = {"kode_bps": kode, "nama_kabupaten": nama, "date": date, "source": source}
+        for key in daily:
+            if key == "time":
+                continue
+            vals = daily[key]
+            rec[key] = vals[i] if i < len(vals) else None
+        # Calculate mean from max/min if not available
+        if "temperature_2m_mean" not in rec:
+            tmax = rec.get("temperature_2m_max")
+            tmin = rec.get("temperature_2m_min")
+            if tmax is not None and tmin is not None:
+                rec["temperature_2m_mean"] = round((tmax + tmin) / 2, 1)
+        records.append(rec)
     return records
 
 
 def collect_all_jatim_weather(start_date=None, end_date=None,
-                              include_forecast=True, delay_seconds=0.5):
-    if end_date is None:
-        end_date = datetime.now().strftime("%Y-%m-%d")
-    if start_date is None:
-        start_date = (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d")
-
+                              include_forecast=True, delay_seconds=0.3):
     raw_dir = os.path.join(DATA_RAW_DIR, "weather")
     ensure_dir(raw_dir)
 
     checkpoint = load_checkpoint("open_meteo", raw_dir)
     completed_codes = set(checkpoint.get("completed", [])) if checkpoint else set()
     if completed_codes:
-        logger.info(f"Resuming: {len(completed_codes)} already done")
+        logger.info(f"Resuming: {len(completed_codes)} done")
+
+    use_archive = False
+    past_days = 92
+    if start_date and end_date:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        days_ago = (datetime.now() - start_dt).days
+        if days_ago > 92:
+            use_archive = True
+            # Archive data is delayed ~5 days, cap end_date
+            safe_end = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
+            if end_date > safe_end:
+                end_date = safe_end
+            logger.info(f"Using Archive API: {start_date} to {end_date}")
+        else:
+            past_days = min(days_ago, 92)
+            logger.info(f"Using Forecast API with past_days={past_days}")
 
     all_records = []
     total = len(JATIM_KABUPATEN)
@@ -103,41 +136,33 @@ def collect_all_jatim_weather(start_date=None, end_date=None,
         kode, nama = kab["kode_bps"], kab["nama"]
 
         if kode in completed_codes:
-            logger.info(f"[{idx+1}/{total}] SKIP {nama} (checkpoint)")
             raw_file = os.path.join(raw_dir, f"weather_{kode}.json")
             if os.path.exists(raw_file):
                 with open(raw_file) as f:
                     cached = json.load(f)
-                all_records.extend(_parse_weather_response(cached.get("historical"), kode, nama, "historical"))
-                if cached.get("forecast"):
-                    all_records.extend(_parse_weather_response(cached["forecast"], kode, nama, "forecast"))
+                all_records.extend(
+                    _parse_weather_response(cached.get("data"), kode, nama, "cached"))
             continue
 
-        logger.info(f"[{idx+1}/{total}] Fetching weather for {nama}...")
+        logger.info(f"[{idx+1}/{total}] {nama}...")
 
-        hist_data = fetch_weather_historical(kab["lat"], kab["lon"], start_date, end_date)
-        time.sleep(delay_seconds)
+        if use_archive:
+            data = fetch_weather_archive(kab["lat"], kab["lon"], start_date, end_date)
+            source = "archive"
+        else:
+            data = fetch_weather_combined(kab["lat"], kab["lon"], past_days=past_days)
+            source = "forecast+past"
 
-        fc_data = None
-        if include_forecast:
-            fc_data = fetch_weather_forecast(kab["lat"], kab["lon"])
-            time.sleep(delay_seconds)
+        save_json({"kode_bps": kode, "nama": nama, "lat": kab["lat"], "lon": kab["lon"],
+                   "data": data, "source": source, "fetched_at": datetime.now().isoformat()},
+                  os.path.join(raw_dir, f"weather_{kode}.json"))
 
-        raw_payload = {
-            "kode_bps": kode, "nama": nama,
-            "lat": kab["lat"], "lon": kab["lon"],
-            "historical": hist_data, "forecast": fc_data,
-            "fetched_at": datetime.now().isoformat(),
-        }
-        save_json(raw_payload, os.path.join(raw_dir, f"weather_{kode}.json"))
-
-        if hist_data:
-            all_records.extend(_parse_weather_response(hist_data, kode, nama, "historical"))
-        if fc_data:
-            all_records.extend(_parse_weather_response(fc_data, kode, nama, "forecast"))
+        if data:
+            all_records.extend(_parse_weather_response(data, kode, nama, source))
 
         completed_codes.add(kode)
         save_checkpoint("open_meteo", {"completed": list(completed_codes)}, raw_dir)
+        time.sleep(delay_seconds)
 
     if not all_records:
         logger.warning("No weather data collected!")
@@ -152,23 +177,19 @@ def collect_all_jatim_weather(start_date=None, end_date=None,
     ensure_dir(out_dir)
     out_path = os.path.join(out_dir, "weather_jatim_combined.csv")
     df.to_csv(out_path, index=False)
-    logger.info(f"Saved: {out_path} ({len(df)} rows)")
+    logger.info(f"Saved: {out_path} ({len(df)} rows, {df['kode_bps'].nunique()} kabupaten)")
     return df
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Collect Open-Meteo weather data for Jatim")
+    parser = argparse.ArgumentParser()
     parser.add_argument("--start", type=str, default=None)
     parser.add_argument("--end", type=str, default=None)
     parser.add_argument("--no-forecast", action="store_true")
-    parser.add_argument("--delay", type=float, default=0.5)
+    parser.add_argument("--delay", type=float, default=0.3)
     args = parser.parse_args()
-
-    df = collect_all_jatim_weather(
-        start_date=args.start, end_date=args.end,
-        include_forecast=not args.no_forecast, delay_seconds=args.delay,
-    )
+    df = collect_all_jatim_weather(args.start, args.end, not args.no_forecast, args.delay)
     if not df.empty:
-        print(f"\nWeather data: {len(df)} rows, {df['kode_bps'].nunique()} kabupaten")
-        print(f"Date range: {df['date'].min()} to {df['date'].max()}")
+        print(f"\n{len(df)} rows, {df['kode_bps'].nunique()} kabupaten, "
+              f"{df['date'].min()} to {df['date'].max()}")
